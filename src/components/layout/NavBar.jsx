@@ -6,7 +6,7 @@ function NavBar({ role }) {
 
   return (
     <div className="w-full bg-vitblue text-white px-6 py-3 flex items-center justify-between">
-      
+
       {/* Left: Logo */}
       <div
         className="flex items-center gap-3 cursor-pointer"
@@ -27,14 +27,7 @@ function NavBar({ role }) {
           </button>
 
           <button
-            onClick={() => navigate("/admin/add-bus")}
-            className="hover:underline"
-          >
-            Add Bus
-          </button>
-
-          <button
-            onClick={() => navigate("/admin/view-buses")}
+            onClick={() => navigate("/admin/buses")}
             className="hover:underline"
           >
             Buses

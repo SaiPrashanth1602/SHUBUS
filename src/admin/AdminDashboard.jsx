@@ -1,33 +1,43 @@
-import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useEffect, useState } from "react"
 import PageWrapper from "../components/layout/PageWrapper"
-
-const ROUTES = [
-  "VELACHERY",
-  "TAMBARAM",
-  "ALANDUR - METRO",
-  "SHOLINGANALLUR"
-]
-
-const TIMES = ["1:20", "1:45"]
+import { getShuttlesByDate } from "../services/shuttleServices"
+import { getAllBuses } from "../services/busServices"
+import { useNavigate } from "react-router-dom"
 
 function AdminDashboard() {
   const navigate = useNavigate()
+  const [shuttles, setShuttles] = useState([])
+  const [busMap, setBusMap] = useState({})
+  const [loading, setLoading] = useState(true)
 
-  const [route, setRoute] = useState("")
-  const [time, setTime] = useState("")
-  const [busType, setBusType] = useState("Non-AC")
+  // TEMP – later make dynamic
+  const today = "2026-02-07"
 
-  const handleChooseLayout = () => {
-    if (!route || !time) {
-      alert("Please select route and time")
-      return
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [shuttleData, busData] = await Promise.all([
+          getShuttlesByDate(today),
+          getAllBuses()
+        ])
+
+        // Build busId → bus object map
+        const map = {}
+        busData.forEach(bus => {
+          map[bus.id] = bus
+        })
+
+        setBusMap(map)
+        setShuttles(shuttleData)
+      } catch (err) {
+        console.error("Failed to load dashboard data", err)
+      } finally {
+        setLoading(false)
+      }
     }
 
-    navigate("/admin/add-bus", {
-      state: { route, time, busType }
-    })
-  }
+    fetchData()
+  }, [])
 
   return (
     <PageWrapper role="admin">
@@ -35,49 +45,72 @@ function AdminDashboard() {
         Admin Dashboard
       </h1>
 
-      <div className="bg-white p-6 rounded-xl shadow max-w-md space-y-4">
-        {/* Route */}
-        <select
-          value={route}
-          onChange={e => setRoute(e.target.value)}
-          className="w-full p-3 border rounded-lg"
-        >
-          <option value="">Select Route</option>
-          {ROUTES.map(r => (
-            <option key={r}>{r}</option>
-          ))}
-        </select>
+      {/* OVERVIEW */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white p-5 rounded-xl shadow">
+          <p className="text-gray-500 text-sm">Date</p>
+          <p className="text-xl font-semibold">{today}</p>
+        </div>
 
-        {/* Time */}
-        <select
-          value={time}
-          onChange={e => setTime(e.target.value)}
-          className="w-full p-3 border rounded-lg"
-        >
-          <option value="">Leaving Time</option>
-          {TIMES.map(t => (
-            <option key={t}>{t}</option>
-          ))}
-        </select>
+        <div className="bg-white p-5 rounded-xl shadow">
+          <p className="text-gray-500 text-sm">Shuttles Today</p>
+          <p className="text-3xl font-bold text-vitblue">
+            {loading ? "-" : shuttles.length}
+          </p>
+        </div>
+      </div>
 
-        {/* AC / Non-AC */}
-        <select
-          value={busType}
-          onChange={e => setBusType(e.target.value)}
-          className="w-full p-3 border rounded-lg"
-        >
-          <option>Non-AC</option>
-          <option>AC</option>
-        </select>
+      {/* SHUTTLE LIST */}
+      <div className="flex justify-between items-center mb-3">
+        <h2 className="text-lg font-semibold">
+          Today’s Running Shuttles
+        </h2>
 
-        {/* Choose Layout */}
         <button
-          onClick={handleChooseLayout}
-          className="w-full bg-vitblue text-white py-3 rounded-lg font-semibold"
+          onClick={() => navigate("/admin/add-shuttle")}
+          className="bg-vitblue text-white px-4 py-2 rounded-lg font-semibold"
         >
-          Choose Seat Layout
+          + Add Shuttle
         </button>
       </div>
+
+
+      {loading ? (
+        <p className="text-gray-500">Loading shuttles...</p>
+      ) : shuttles.length === 0 ? (
+        <p className="text-gray-500">No shuttles scheduled for today.</p>
+      ) : (
+        <div className="bg-white rounded-xl shadow overflow-x-auto">
+          <table className="w-full text-left">
+            <thead className="bg-vitlight">
+              <tr>
+                <th className="p-3">Bus No</th>
+                <th className="p-3">Number Plate</th>
+                <th className="p-3">Route</th>
+                <th className="p-3">Time</th>
+                <th className="p-3">Type</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {shuttles.map(shuttle => {
+                const bus = busMap[shuttle.busId]
+                if (!bus) return null
+
+                return (
+                  <tr key={shuttle.id} className="border-t">
+                    <td className="p-3 font-semibold">{bus.busNo}</td>
+                    <td className="p-3">{bus.numberPlate}</td>
+                    <td className="p-3">{shuttle.route}</td>
+                    <td className="p-3">{shuttle.time}</td>
+                    <td className="p-3">{bus.busType}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </PageWrapper>
   )
 }

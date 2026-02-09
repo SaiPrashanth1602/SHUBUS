@@ -1,64 +1,120 @@
 import { useState } from "react"
-import { useLocation, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import PageWrapper from "../components/layout/PageWrapper"
+import { addBus } from "../services/busServices"
 
 function AddBus() {
   const navigate = useNavigate()
-  const { state } = useLocation()
 
-  // 🔒 Safety guard
-  if (!state) {
-    return (
-      <PageWrapper role="admin">
-        <p className="text-center text-gray-500">
-          No bus data found. Please start from Admin Dashboard.
-        </p>
-      </PageWrapper>
-    )
-  }
-
-  const { route, time, busType } = state
   const [busNo, setBusNo] = useState("")
+  const [numberPlate, setNumberPlate] = useState("")
+  const [busType, setBusType] = useState("Non-AC")
+  const [seatLayoutId, setSeatLayoutId] = useState("STD_40")
+  const [driverName, setDriverName] = useState("")
+  const [driverPhone, setDriverPhone] = useState("")
+  const [loading, setLoading] = useState(false)
 
-  const handleAddBus = () => {
-    if (!busNo) {
-      alert("Please enter bus number")
+  const handleSubmit = async () => {
+    if (!busNo || !numberPlate) {
+      alert("Bus No and Number Plate are required")
       return
     }
 
-    alert("Bus added (UI-only)")
-    navigate("/admin/view-buses")
+    setLoading(true)
+
+    try {
+      await addBus({
+        busNo,
+        numberPlate: numberPlate.replace(/[^A-Z0-9]/gi, "").toUpperCase(),
+        busType,
+        seatLayoutId,
+        driver: {
+          name: driverName || "Not assigned",
+          phone: driverPhone || ""
+        }
+      })
+
+      navigate("/admin/buses")
+    } catch (err) {
+      console.error("Failed to add bus", err)
+      alert("Failed to add bus")
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
     <PageWrapper role="admin">
       <h1 className="text-2xl font-bold text-vitblue mb-6">
-        Finalize Bus
+        Add Bus (Hardware)
       </h1>
 
-      {/* Context (READ-ONLY) */}
-      <div className="bg-vitlight p-4 rounded-xl mb-4 text-sm">
-        <p><b>Route:</b> {route}</p>
-        <p><b>Time:</b> {time}</p>
-        <p><b>Type:</b> {busType}</p>
-      </div>
-
-      {/* Input */}
       <div className="bg-white p-6 rounded-xl shadow max-w-md space-y-4">
         <input
           type="text"
-          placeholder="Bus Number (e.g. TN 09 AB 1234)"
+          placeholder="Bus No (e.g. Bus 12)"
           value={busNo}
           onChange={e => setBusNo(e.target.value)}
           className="w-full p-3 border rounded-lg"
         />
 
-        <button
-          onClick={handleAddBus}
-          className="w-full bg-vitblue text-white py-3 rounded-lg font-semibold"
+        <input
+          type="text"
+          placeholder="Number Plate (e.g. TN 09 AB 2345)"
+          value={numberPlate}
+          onChange={e => setNumberPlate(e.target.value)}
+          className="w-full p-3 border rounded-lg"
+        />
+
+        <select
+          value={busType}
+          onChange={e => setBusType(e.target.value)}
+          className="w-full p-3 border rounded-lg"
         >
-          Add Bus
-        </button>
+          <option value="Non-AC">Non-AC</option>
+          <option value="AC">AC</option>
+        </select>
+
+        <input
+          type="text"
+          placeholder="Seat Layout ID (e.g. STD_40)"
+          value={seatLayoutId}
+          onChange={e => setSeatLayoutId(e.target.value)}
+          className="w-full p-3 border rounded-lg"
+        />
+
+        <input
+          type="text"
+          placeholder="Driver Name"
+          value={driverName}
+          onChange={e => setDriverName(e.target.value)}
+          className="w-full p-3 border rounded-lg"
+        />
+
+        <input
+          type="text"
+          placeholder="Driver Phone"
+          value={driverPhone}
+          onChange={e => setDriverPhone(e.target.value)}
+          className="w-full p-3 border rounded-lg"
+        />
+
+        <div className="flex gap-3 pt-2">
+          <button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="flex-1 bg-vitblue text-white py-3 rounded-lg font-semibold disabled:opacity-50"
+          >
+            {loading ? "Adding..." : "Add Bus"}
+          </button>
+
+          <button
+            onClick={() => navigate("/admin/buses")}
+            className="flex-1 bg-gray-200 py-3 rounded-lg font-semibold"
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     </PageWrapper>
   )
