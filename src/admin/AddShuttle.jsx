@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import PageWrapper from "../components/layout/PageWrapper"
 import { getAllBuses } from "../services/busServices"
 import { addShuttle } from "../services/shuttleServices"
+import { getShuttlesByDate } from "../services/shuttleServices"
 
 const ROUTES = [
   "VELACHERY",
@@ -13,6 +14,7 @@ const ROUTES = [
 const TIMES = ["1:20", "1:45"]
 
 function AddShuttle() {
+  const [shuttles, setShuttles] = useState([])
   const [buses, setBuses] = useState([])
   const [selectedBus, setSelectedBus] = useState(null)
   const [route, setRoute] = useState("")
