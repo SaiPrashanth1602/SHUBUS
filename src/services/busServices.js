@@ -1,40 +1,46 @@
-import { db } from "../config/firebase"
+// src/services/busServices.js
 import {
   collection,
-  addDoc,
   getDocs,
-  updateDoc,
+  query,
+  where,
   doc,
-  serverTimestamp
+  updateDoc,
+  addDoc
 } from "firebase/firestore"
+import { db } from "../config/firebase"
 
-const busesRef = collection(db, "buses")
+// ✅ GET ONLY ACTIVE BUSES
+export async function getAllBuses() {
+  const ref = collection(db, "buses")
+  const q = query(ref, where("active", "!=", false))
 
-// ➕ Add new physical bus
-export const addBus = async (busData) => {
-  return await addDoc(busesRef, {
-    ...busData,
-    active: true,
-    createdAt: serverTimestamp()
-  })
-}
-
-// 📥 Get ALL buses (hardware only)
-export const getAllBuses = async () => {
-  const snapshot = await getDocs(busesRef)
-  return snapshot.docs.map(d => ({
-    id: d.id,
-    ...d.data()
+  const snapshot = await getDocs(q)
+  return snapshot.docs.map(doc => ({
+    id: doc.id,
+    ...doc.data()
   }))
 }
 
-// ❌ Soft remove bus
-export const disableBus = async (busId) => {
-  const busRef = doc(db, "buses", busId)
-  await updateDoc(busRef, { active: false })
+// ✅ ADD BUS (DEFAULT ACTIVE)
+export async function addBus(bus) {
+  const ref = collection(db, "buses")
+  await addDoc(ref, {
+    ...bus,
+    active: true
+  })
 }
 
-export const updateBus = async (busId, updates) => {
-  const busRef = doc(db, "buses", busId)
-  await updateDoc(busRef, updates)
+// ✅ SOFT DELETE (DISABLE)
+export async function disableBus(busId) {
+  const ref = doc(db, "buses", busId)
+  await updateDoc(ref, {
+    active: false
+  })
+}
+
+// ✅ UPDATE BUS
+export async function updateBus(busId, updates) {
+  const ref = doc(db, "buses", busId)
+  await updateDoc(ref, updates)
 }
