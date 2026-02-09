@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import vitLogo from "../../assets/vit-logo.png"
-import { db } from "../../firebase/firebase"
+import { db } from "../../config/firebase"
 
 
 function Login() {
