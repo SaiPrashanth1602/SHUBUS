@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react"
 import PageWrapper from "../components/layout/PageWrapper"
 import { getAllBuses } from "../services/busServices"
-import { addShuttle } from "../services/shuttleServices"
-import { getShuttlesByDate } from "../services/shuttleServices"
+import { addShuttle, getShuttlesByDate } from "../services/shuttleServices"
 
 const ROUTES = [
   "VELACHERY",
@@ -14,8 +13,8 @@ const ROUTES = [
 const TIMES = ["1:20", "1:45"]
 
 function AddShuttle() {
-  const [shuttles, setShuttles] = useState([])
   const [buses, setBuses] = useState([])
+  const [shuttles, setShuttles] = useState([])
   const [selectedBus, setSelectedBus] = useState(null)
   const [route, setRoute] = useState("")
   const [time, setTime] = useState("")
@@ -23,23 +22,37 @@ function AddShuttle() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchBuses = async () => {
+    const fetchData = async () => {
       try {
-        const data = await getAllBuses()
-        setBuses(data.filter(b => b.active !== false))
+        const [busData, shuttleData] = await Promise.all([
+          getAllBuses(),
+          getShuttlesByDate(date)
+        ])
+
+        setBuses(busData.filter(b => b.active !== false))
+        setShuttles(shuttleData)
       } catch (err) {
-        console.error("Failed to load buses", err)
+        console.error("Failed to load data", err)
       } finally {
         setLoading(false)
       }
     }
 
-    fetchBuses()
-  }, [])
+    fetchData()
+  }, [date])
+
+  // 🔒 CORE LOGIC: buses already running today
+  const usedBusIds = shuttles.map(shuttle => shuttle.busId)
 
   const handleAddShuttle = async () => {
     if (!selectedBus || !route || !time || !date) {
       alert("Please fill all fields")
+      return
+    }
+
+    // 🛑 SAFETY CHECK
+    if (usedBusIds.includes(selectedBus.id)) {
+      alert("This bus is already running today")
       return
     }
 
@@ -53,6 +66,13 @@ function AddShuttle() {
       })
 
       alert("Shuttle added successfully")
+
+      // update UI immediately
+      setShuttles(prev => [
+        ...prev,
+        { busId: selectedBus.id }
+      ])
+
       setSelectedBus(null)
       setRoute("")
       setTime("")
@@ -68,33 +88,35 @@ function AddShuttle() {
         Add Shuttle
       </h1>
 
-      {/* BUS LIST */}
+      {/* AVAILABLE BUSES */}
       {loading ? (
         <p className="text-gray-500">Loading buses...</p>
-      ) : buses.length === 0 ? (
-        <p className="text-gray-500">No buses available.</p>
+      ) : buses.filter(bus => !usedBusIds.includes(bus.id)).length === 0 ? (
+        <p className="text-gray-500">No available buses to add.</p>
       ) : (
         <div className="grid gap-4 mb-6">
-          {buses.map(bus => (
-            <div
-              key={bus.id}
-              className="bg-white p-4 rounded-xl shadow flex justify-between items-center"
-            >
-              <div>
-                <p className="font-semibold">{bus.busNo}</p>
-                <p className="text-sm text-gray-600">
-                  {bus.numberPlate} • {bus.busType}
-                </p>
-              </div>
-
-              <button
-                onClick={() => setSelectedBus(bus)}
-                className="bg-vitblue text-white px-4 py-2 rounded-lg font-semibold"
+          {buses
+            .filter(bus => !usedBusIds.includes(bus.id))
+            .map(bus => (
+              <div
+                key={bus.id}
+                className="bg-white p-4 rounded-xl shadow flex justify-between items-center"
               >
-                Add Shuttle
-              </button>
-            </div>
-          ))}
+                <div>
+                  <p className="font-semibold">{bus.busNo}</p>
+                  <p className="text-sm text-gray-600">
+                    {bus.numberPlate} • {bus.busType}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setSelectedBus(bus)}
+                  className="bg-vitblue text-white px-4 py-2 rounded-lg font-semibold"
+                >
+                  Add Shuttle
+                </button>
+              </div>
+            ))}
         </div>
       )}
 
