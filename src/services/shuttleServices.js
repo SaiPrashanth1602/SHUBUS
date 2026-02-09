@@ -5,7 +5,9 @@ import {
   getDocs,
   query,
   where,
-  serverTimestamp
+  serverTimestamp,
+  doc,
+  updateDoc
 } from "firebase/firestore"
 
 const shuttlesRef = collection(db, "shuttles")
@@ -19,7 +21,7 @@ export const addShuttle = async (shuttleData) => {
   })
 }
 
-// 📥 Get shuttles by date (what students/admin see)
+// 📥 Get shuttles by date (admin + students)
 export const getShuttlesByDate = async (date) => {
   const q = query(
     shuttlesRef,
@@ -32,4 +34,16 @@ export const getShuttlesByDate = async (date) => {
     id: d.id,
     ...d.data()
   }))
+}
+
+// ❌ Soft cancel shuttle
+export const cancelShuttle = async (shuttleId) => {
+  const shuttleRef = doc(db, "shuttles", shuttleId)
+  await updateDoc(shuttleRef, { active: false })
+}
+
+// ✏️ Update shuttle (route / time only)
+export const updateShuttle = async (shuttleId, updates) => {
+  const shuttleRef = doc(db, "shuttles", shuttleId)
+  await updateDoc(shuttleRef, updates)
 }

@@ -33,3 +33,8 @@ export const disableBus = async (busId) => {
   const busRef = doc(db, "buses", busId)
   await updateDoc(busRef, { active: false })
 }
+
+export const updateBus = async (busId, updates) => {
+  const busRef = doc(db, "buses", busId)
+  await updateDoc(busRef, updates)
+}
