@@ -29,7 +29,14 @@ function BusSelection() {
     try {
       setLoading(true)
       const shuttlesRef = collection(db, "shuttles")
-      const shuttleQuery = query(shuttlesRef, where("date", "==", today))
+
+      // 🚨 FIX IS HERE: Added where("active", "==", true)
+      const shuttleQuery = query(
+        shuttlesRef,
+        where("date", "==", today),
+        where("active", "==", true) // Only get active buses
+      )
+
       const shuttleSnap = await getDocs(shuttleQuery)
 
       const shuttleList = shuttleSnap.docs.map(doc => ({
@@ -49,7 +56,7 @@ function BusSelection() {
       setShuttles(shuttleList)
     } catch (err) {
       console.error(err)
-      alert("Failed to load buses")
+      // alert("Failed to load buses") // Commented out to be less annoying
     } finally {
       setLoading(false)
     }
@@ -121,8 +128,8 @@ function BusSelection() {
             Showing {filtered.length} results
           </p>
           {(selectedRoute || selectedTime) && (
-            <button 
-              onClick={() => {setSelectedRoute(""); setSelectedTime("")}}
+            <button
+              onClick={() => { setSelectedRoute(""); setSelectedTime("") }}
               className="text-sm text-vitblue font-bold hover:underline"
             >
               Reset Filters
@@ -168,25 +175,30 @@ function BusSelection() {
                         <span className="text-gray-600 font-mono">{bus.numberPlate}</span>
                       </div>
                       <div className="flex items-center gap-4 mt-3">
-                         <div className="flex items-center text-gray-500 text-sm">
-                           <span className="mr-1.5">🕒</span>
-                           {shuttle.time}
-                         </div>
-                         <div className="flex items-center text-gray-500 text-sm">
-                           <span className="mr-1.5">👤</span>
-                           {bus.driver?.name || "Assigning..."}
-                         </div>
+                        <div className="flex items-center text-gray-500 text-sm">
+                          <span className="mr-1.5">🕒</span>
+                          {shuttle.time}
+                        </div>
+                        <div className="flex items-center text-gray-500 text-sm">
+                          <span className="mr-1.5">👤</span>
+                          {bus.driver?.name || "Assigning..."}
+                        </div>
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between md:justify-end gap-4 border-t border-gray-50 pt-4 md:border-none md:pt-0">
                     <div className="md:hidden flex flex-col">
-                       <span className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Fare</span>
-                       <span className="font-bold text-gray-900">Complimentary</span>
+                      <span className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Fare</span>
+                      <span className="font-bold text-gray-900">Complimentary</span>
                     </div>
                     <button
-                      onClick={() => navigate(`/student/seat-layout/${shuttle.id}`)}
+                      onClick={() => navigate(`/student/seat-layout/${shuttle.id}`, {
+                        state: {
+                          route: shuttle.route,
+                          time: shuttle.time
+                        }
+                      })}
                       className="w-full md:w-auto bg-vitblue text-white px-8 py-3.5 rounded-xl font-bold shadow-lg shadow-blue-100 hover:shadow-blue-200 hover:-translate-y-0.5 active:translate-y-0 transition-all"
                     >
                       Select Seat
