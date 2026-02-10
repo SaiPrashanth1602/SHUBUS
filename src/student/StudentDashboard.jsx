@@ -11,14 +11,18 @@ const BusIcon = () => (
   </svg>
 )
 
-function BusSelection() {
+function StudentDashboard() {
   const [shuttles, setShuttles] = useState([])
   const [busMap, setBusMap] = useState({})
   const [loading, setLoading] = useState(true)
+  
+  // Filters
   const [selectedRoute, setSelectedRoute] = useState("")
   const [selectedTime, setSelectedTime] = useState("")
+  
   const navigate = useNavigate()
 
+  // Get today's date in YYYY-MM-DD format
   const today = new Date().toISOString().split("T")[0]
 
   useEffect(() => {
@@ -28,25 +32,30 @@ function BusSelection() {
   async function fetchData() {
     try {
       setLoading(true)
+      console.log("🔄 Fetching shuttles for date:", today)
+
       const shuttlesRef = collection(db, "shuttles")
 
-      // 🚨 FIX IS HERE: Added where("active", "==", true)
+      // 🚨 FIX 1: Removed 'active' check so ALL shuttles show up
+      // 🚨 FIX 2: Only filter by date. 
       const shuttleQuery = query(
         shuttlesRef,
-        where("date", "==", today),
-        where("active", "==", true) // Only get active buses
+        where("date", "==", today) 
       )
 
       const shuttleSnap = await getDocs(shuttleQuery)
+      
+      console.log("✅ Found Shuttles:", shuttleSnap.docs.length)
 
       const shuttleList = shuttleSnap.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }))
 
+      // Get All Buses
       const busesRef = collection(db, "buses")
       const busesSnap = await getDocs(busesRef)
-
+      
       const map = {}
       busesSnap.forEach(doc => {
         map[doc.id] = doc.data()
@@ -55,16 +64,17 @@ function BusSelection() {
       setBusMap(map)
       setShuttles(shuttleList)
     } catch (err) {
-      console.error(err)
-      // alert("Failed to load buses") // Commented out to be less annoying
+      console.error("❌ Error fetching data:", err)
     } finally {
       setLoading(false)
     }
   }
 
+  // Generate Filter Options
   const routes = [...new Set(shuttles.map(s => s.route))]
   const times = [...new Set(shuttles.map(s => s.time))].sort()
 
+  // Apply Filters
   const filtered = shuttles.filter(s => {
     const routeOk = selectedRoute ? s.route === selectedRoute : true
     const timeOk = selectedTime ? s.time === selectedTime : true
@@ -146,13 +156,17 @@ function BusSelection() {
               </div>
               <h3 className="text-lg font-bold text-gray-800">No buses available</h3>
               <p className="text-gray-500 max-w-xs mx-auto mt-2">
-                We couldn't find any shuttles matching your filters for today.
+                We couldn't find any shuttles scheduled for today ({today}).
               </p>
             </div>
           ) : (
             filtered.map(shuttle => {
-              const bus = busMap[shuttle.busId]
-              if (!bus) return null
+                // 🚨 FIX 3: Safety Placeholder if Bus is Missing
+                const bus = busMap[shuttle.busId] || { 
+                    busNo: "Unknown", 
+                    numberPlate: "---", 
+                    driver: { name: "N/A" } 
+                }
 
               return (
                 <div
@@ -214,4 +228,4 @@ function BusSelection() {
   )
 }
 
-export default BusSelection
+export default StudentDashboard
