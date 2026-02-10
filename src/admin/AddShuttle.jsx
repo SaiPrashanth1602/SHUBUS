@@ -41,31 +41,31 @@ function AddShuttle() {
   const usedBusIds = shuttles.map(s => s.busId)
   const availableBuses = buses.filter(b => !usedBusIds.includes(b.id))
 
-  const handleAddShuttle = async () => {
+const handleAddShuttle = async () => {
       if (!selectedBus || !route || !time) {
         alert("Please fill all fields");
         return;
       }
 
-      // 🛑 1. STOP if already loading (Prevents double clicks)
       if (loading) return; 
 
       try {
-        setLoading(true); // 🔒 Lock the button
+        setLoading(true);
 
-        await addShuttle({
+        const newShuttle = {
           busId: selectedBus.id,
           route,
           time,
           date: today,
           active: true
-        });
+        };
 
-        // Refresh list
-        const updated = await getShuttlesByDate(today);
-        setShuttles(updated);
+        const docRef = await addShuttle(newShuttle);
+
+        // ✅ IMPROVEMENT: Update local state immediately so the 
+        // bus disappears from "Available" without a second network hit
+        setShuttles(prev => [...prev, { id: docRef.id, ...newShuttle }]);
         
-        // Close modal
         setSelectedBus(null); 
         setRoute("");
         setTime("");
@@ -75,7 +75,7 @@ function AddShuttle() {
         console.error("Error adding shuttle:", error);
         alert("Failed to add shuttle");
       } finally {
-        setLoading(false); // 🔓 Unlock the button (even if it fails)
+        setLoading(false);
       }
     };
 

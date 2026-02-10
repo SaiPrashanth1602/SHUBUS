@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react"
 import PageWrapper from "../components/layout/PageWrapper"
 import {
-  getShuttlesByDate,
   cancelShuttle,
   updateShuttle
 } from "../services/shuttleServices"
 import { getAllBuses } from "../services/busServices"
 import { useNavigate } from "react-router-dom"
-
+import { subscribeShuttlesByDate } from "../services/shuttleServices"
+import { doc, deleteDoc } from "firebase/firestore"; // Add deleteDoc to your imports at the top
+import { db } from "../config/firebase";
 function AdminDashboard() {
   const navigate = useNavigate()
   const [routeFilter, setRouteFilter] = useState("ALL")
@@ -36,24 +37,27 @@ function AdminDashboard() {
   })
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [shuttleData, busData] = await Promise.all([
-          getShuttlesByDate(today),
-          getAllBuses()
-        ])
-        const map = {}
-        busData.forEach(bus => { map[bus.id] = bus })
-        setBusMap(map)
-        setShuttles(shuttleData)
-      } catch (err) {
-        console.error("Failed to load dashboard data", err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchData()
-  }, [today])
+  let unsubscribe = () => {}
+
+  const fetchBuses = async () => {
+    const busData = await getAllBuses()
+    const map = {}
+    busData.forEach(bus => {
+      map[bus.id] = bus
+    })
+    setBusMap(map)
+  }
+
+  fetchBuses()
+
+  unsubscribe = subscribeShuttlesByDate(today, data => {
+    setShuttles(data)
+    setLoading(false)
+  })
+
+  return () => unsubscribe()
+}, [today])
+
 
   // Overview Metrics
   const totalShuttles = shuttles.length
@@ -66,7 +70,6 @@ function AdminDashboard() {
     if (!confirm) return
     try {
       await cancelShuttle(shuttleId)
-      setShuttles(prev => prev.filter(s => s.id !== shuttleId))
     } catch (err) {
       console.error("Failed to cancel shuttle", err)
       alert("Failed to cancel shuttle")
@@ -79,9 +82,6 @@ function AdminDashboard() {
         route: editingShuttle.route,
         time: editingShuttle.time
       })
-      setShuttles(prev =>
-        prev.map(s => (s.id === editingShuttle.id ? editingShuttle : s))
-      )
       setEditingShuttle(null)
     } catch (err) {
       console.error("Failed to update shuttle", err)
