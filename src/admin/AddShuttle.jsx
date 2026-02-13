@@ -14,6 +14,8 @@ function AddShuttle() {
   const [route, setRoute] = useState("")
   const [time, setTime] = useState("")
   const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState("")
+
 
   const today = new Date().toISOString().split("T")[0]
 
@@ -40,67 +42,102 @@ function AddShuttle() {
 
   const usedBusIds = shuttles.map(s => s.busId)
   const availableBuses = buses.filter(b => !usedBusIds.includes(b.id))
+  const filteredBuses = availableBuses.filter(bus => {
+    const query = search.toLowerCase().trim()
 
-const handleAddShuttle = async () => {
-      if (!selectedBus || !route || !time) {
-        alert("Please fill all fields");
-        return;
-      }
+    const matchesBusNo = bus.busNo.toLowerCase().includes(query)
+    const matchesPlate = bus.numberPlate.toLowerCase().includes(query)
 
-      if (loading) return; 
+    // Special handling for AC / NON-AC
+    let matchesType = false
 
-      try {
-        setLoading(true);
+    if (query === "ac") {
+      matchesType = bus.busType.toLowerCase() === "ac"
+    } else if (query === "non-ac" || query === "non ac") {
+      matchesType = bus.busType.toLowerCase() === "non-ac"
+    } else {
+      matchesType = bus.busType.toLowerCase().includes(query)
+    }
 
-        const newShuttle = {
-          busId: selectedBus.id,
-          route,
-          time,
-          date: today,
-          active: true
-        };
+    return matchesBusNo || matchesPlate || matchesType
+  })
 
-        const docRef = await addShuttle(newShuttle);
 
-        // ✅ IMPROVEMENT: Update local state immediately so the 
-        // bus disappears from "Available" without a second network hit
-        setShuttles(prev => [...prev, { id: docRef.id, ...newShuttle }]);
-        
-        setSelectedBus(null); 
-        setRoute("");
-        setTime("");
-        alert("Shuttle Added!");
 
-      } catch (error) {
-        console.error("Error adding shuttle:", error);
-        alert("Failed to add shuttle");
-      } finally {
-        setLoading(false);
-      }
-    };
+  const handleAddShuttle = async () => {
+    if (!selectedBus || !route || !time) {
+      alert("Please fill all fields");
+      return;
+    }
+
+    if (loading) return;
+
+    try {
+      setLoading(true);
+
+      const newShuttle = {
+        busId: selectedBus.id,
+        route,
+        time,
+        date: today,
+        active: true
+      };
+
+      const docRef = await addShuttle(newShuttle);
+
+      // ✅ IMPROVEMENT: Update local state immediately so the 
+      // bus disappears from "Available" without a second network hit
+      setShuttles(prev => [...prev, { id: docRef.id, ...newShuttle }]);
+
+      setSelectedBus(null);
+      setRoute("");
+      setTime("");
+      alert("Shuttle Added!");
+
+    } catch (error) {
+      console.error("Error adding shuttle:", error);
+      alert("Failed to add shuttle");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <PageWrapper role="admin">
-      <h1 className="text-2xl md:text-3xl font-bold text-vitblue mb-6">Manage Shuttles</h1>
+      <h1 className="text-2xl md:text-3xl font-bold text-vitblue mb-4">
+        Manage Shuttles
+      </h1>
+
+      {/* SEARCH BAR */}
+      <div className="mb-6">
+        <input
+          type="text"
+          placeholder="Search by Bus No, Plate or Type..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full md:w-96 p-3 rounded-xl border border-gray-200 bg-white shadow-sm focus:ring-2 focus:ring-vitblue outline-none transition"
+        />
+      </div>
+
 
       {/* AVAILABLE BUSES SECTION */}
       <section className="mb-8">
         <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          Available Buses 
+          Available Buses
           <span className="bg-blue-100 text-vitblue text-xs px-2 py-1 rounded-full">
-            {availableBuses.length}
+            {filteredBuses.length}
           </span>
         </h2>
 
         {loading ? (
           <div className="animate-pulse text-gray-400">Loading fleet...</div>
-        ) : availableBuses.length === 0 ? (
+        ) : filteredBuses.length === 0 ? (
           <div className="bg-gray-50 border-2 border-dashed border-gray-200 p-8 rounded-xl text-center text-gray-500">
             No buses available for assignment today.
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {availableBuses.map(bus => (
+            {filteredBuses.map(bus => (
               <div
                 key={bus.id}
                 className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center hover:shadow-md transition-shadow"
