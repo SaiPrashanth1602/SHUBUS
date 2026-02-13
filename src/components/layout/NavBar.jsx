@@ -14,6 +14,7 @@ function NavBar({ role }) {
     ? [
         { label: "Dashboard", path: "/admin" },
         { label: "Manage Buses", path: "/admin/buses" }, // Added useful link
+        { label: "Manage Shuttles", path: "/admin/add-shuttle" },
         { label: "Bookings", path: "/admin/bookings" },
       ]
     : [
