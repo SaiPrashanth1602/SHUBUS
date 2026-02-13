@@ -2,6 +2,9 @@ import { useEffect, useState } from "react"
 import PageWrapper from "../components/layout/PageWrapper"
 import { getAllBuses } from "../services/busServices"
 import { addShuttle, getShuttlesByDate } from "../services/shuttleServices"
+import { Bus, MapPin, User, Phone, Hash, Layers } from "lucide-react"
+import Modal from "../components/ui/Modal"
+
 
 const ROUTES = ["VELACHERY", "TAMBARAM", "ALANDUR - METRO", "SHOLINGANALLUR"]
 const TIMES = ["1:20", "1:45"]
@@ -11,10 +14,21 @@ function AddShuttle() {
   const [busMap, setBusMap] = useState({})
   const [shuttles, setShuttles] = useState([])
   const [selectedBus, setSelectedBus] = useState(null)
+  const [viewBus, setViewBus] = useState(null)
   const [route, setRoute] = useState("")
   const [time, setTime] = useState("")
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
+  const KV = ({ label, value, icon }) => (
+    <div className="flex justify-between items-center text-sm">
+      <div className="flex items-center gap-2 text-gray-500">
+        {icon}
+        {label}
+      </div>
+      <span className="font-semibold">{value}</span>
+    </div>
+  )
+
 
 
   const today = new Date().toISOString().split("T")[0]
@@ -148,12 +162,30 @@ function AddShuttle() {
                     {bus.busType} • {bus.numberPlate}
                   </p>
                 </div>
-                <button
-                  onClick={() => setSelectedBus(bus)}
-                  className="bg-vitblue text-white text-sm font-bold px-4 py-2 rounded-lg hover:bg-blue-800 transition-colors"
-                >
-                  Assign
-                </button>
+                <div className="flex gap-2">
+                  
+
+                  <div className="flex gap-2">
+                    {/* VIEW BUTTON */}
+                    <button
+                      onClick={() => setViewBus(bus)}
+                      className="px-3 py-2 text-sm font-semibold border border-gray-300 rounded-lg hover:bg-gray-100 transition"
+                    >
+                      View
+                    </button>
+
+                    {/* ASSIGN BUTTON */}
+                    <button
+                      onClick={() => setSelectedBus(bus)}
+                      className="bg-vitblue text-white text-sm font-bold px-4 py-2 rounded-lg hover:bg-blue-800 transition-colors"
+                    >
+                      Assign
+                    </button>
+                  </div>
+
+
+                </div>
+
               </div>
             ))}
           </div>
@@ -210,6 +242,59 @@ function AddShuttle() {
           </div>
         </div>
       )}
+      {/* ================= VIEW MODAL ================= */}
+      {viewBus && (
+        <Modal title="Bus Details" onClose={() => setViewBus(null)}>
+          <div className="space-y-6">
+
+            {/* VEHICLE INFO */}
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">
+                Vehicle Specifications
+              </p>
+
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3">
+                <KV icon={<Hash size={16} className="text-blue-500" />} label="Bus Number" value={viewBus.busNo} />
+                <KV icon={<Hash size={16} className="text-slate-400" />} label="Number Plate" value={viewBus.numberPlate} />
+
+                <div className="flex justify-between items-center py-1">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <Bus size={16} className="text-slate-400" />
+                    <span className="text-sm font-medium">Bus Type</span>
+                  </div>
+                  <span className="px-3 py-1 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-bold shadow-sm">
+                    {viewBus.busType}
+                  </span>
+                </div>
+
+                <KV icon={<Layers size={16} className="text-slate-400" />} label="Seat Layout" value={viewBus.seatLayoutId} />
+              </div>
+            </div>
+
+            {/* ROUTE & PERSONNEL */}
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">
+                Route & Personnel
+              </p>
+
+              <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50 space-y-3">
+                <KV icon={<MapPin size={16} className="text-red-400" />} label="Morning Route" value={viewBus.morningRoute || "Not Assigned"} />
+                <KV icon={<User size={16} className="text-blue-600" />} label="Driver Name" value={viewBus.driver?.name || "Unassigned"} />
+                <KV icon={<Phone size={16} className="text-green-600" />} label="Driver Phone" value={viewBus.driver?.phone || "No Contact"} />
+              </div>
+            </div>
+
+            <button
+              onClick={() => setViewBus(null)}
+              className="w-full py-3 text-slate-500 font-semibold text-sm hover:bg-slate-50 rounded-xl transition-colors"
+            >
+              Close Preview
+            </button>
+
+          </div>
+        </Modal>
+      )}
+
 
       {/* RUNNING SHUTTLES TABLE */}
       <h2 className="text-lg font-semibold mb-4">Running Today</h2>
