@@ -16,6 +16,9 @@ const formatDate = (timestamp) => {
 function ViewBookings() {
   const [bookings, setBookings] = useState([])
   const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState("")
+  const [routeFilter, setRouteFilter] = useState("All")
+
 
   useEffect(() => {
     const loadData = async () => {
@@ -61,6 +64,34 @@ function ViewBookings() {
     }
     loadData()
   }, [])
+  const routes = [
+  "All",
+  ...Array.from(
+    new Set(
+      bookings
+        ?.map(b => b.busDetails?.route)
+        ?.filter(Boolean)
+    )
+  )
+]
+
+
+const filteredBookings = bookings.filter(b => {
+  const regNo = (b.displayId || "").toLowerCase()
+  const seat = String(b.seatNumber || "")
+  const route = b.busDetails?.route || ""
+
+  const matchesSearch =
+    regNo.includes(search.toLowerCase()) ||
+    seat.includes(search)
+
+  const matchesRoute =
+    routeFilter === "All" || route === routeFilter
+
+  return matchesSearch && matchesRoute
+})
+
+
 
   return (
     <PageWrapper role="admin">
@@ -70,6 +101,32 @@ function ViewBookings() {
           Total: {bookings.length}
         </div>
       </div>
+      {/* SEARCH + FILTER */}
+<div className="flex flex-col md:flex-row gap-3 mb-4">
+
+  {/* SEARCH */}
+  <input
+    type="text"
+    placeholder="Search RegNo or Seat No..."
+    value={search}
+    onChange={e => setSearch(e.target.value)}
+    className="border p-3 rounded-xl w-full md:w-64"
+  />
+
+  {/* ROUTE FILTER */}
+  <select
+    value={routeFilter}
+    onChange={e => setRouteFilter(e.target.value)}
+    className="border p-3 rounded-xl w-full md:w-56"
+  >
+    {routes.map(route => (
+      <option key={route} value={route}>
+        {route}
+      </option>
+    ))}
+  </select>
+
+</div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="overflow-x-auto">
@@ -89,7 +146,7 @@ function ViewBookings() {
               ) : bookings.length === 0 ? (
                 <tr><td colSpan="5" className="p-6 text-center text-gray-500">No bookings found.</td></tr>
               ) : (
-                bookings.map((booking) => (
+                filteredBookings.map((booking) => (
                   <tr key={booking.id} className="hover:bg-blue-50/50 transition-colors">
                     {/* ✅ This now shows the REAL Register Number from 'users' db */}
                     <td className="p-4 font-mono text-vitblue font-bold">

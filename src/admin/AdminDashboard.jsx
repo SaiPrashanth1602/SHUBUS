@@ -7,7 +7,7 @@ import {
 import { getAllBuses } from "../services/busServices"
 import { useNavigate } from "react-router-dom"
 import { subscribeShuttlesByDate } from "../services/shuttleServices"
-import { doc, deleteDoc } from "firebase/firestore"; // Add deleteDoc to your imports at the top
+import { doc, deleteDoc } from "firebase/firestore"; 
 import { db } from "../config/firebase";
 import { Bus, MapPin, User, Phone, Hash, Layers } from "lucide-react"
 import Modal from "../components/ui/Modal"
@@ -31,12 +31,14 @@ function AdminDashboard() {
     const timeOk = timeFilter === "ALL" || s.time === timeFilter
     return routeOk && timeOk
   })
-const KV = ({ label, value, icon }) => (
-  <div className="flex justify-between items-center text-sm">
-    <div className="flex items-center gap-2 text-gray-500">{icon}{label}</div>
-    <span className="font-semibold">{value}</span>
-  </div>
-)
+
+  const KV = ({ label, value, icon }) => (
+    <div className="flex justify-between items-center text-sm">
+      <div className="flex items-center gap-2 text-gray-500">{icon}{label}</div>
+      <span className="font-semibold">{value}</span>
+    </div>
+  )
+
   const today = new Date().toISOString().split("T")[0]
   const displayDate = new Date().toLocaleDateString("en-IN", {
     weekday: "long",
@@ -46,26 +48,26 @@ const KV = ({ label, value, icon }) => (
   })
 
   useEffect(() => {
-  let unsubscribe = () => {}
+    let unsubscribe = () => {}
 
-  const fetchBuses = async () => {
-    const busData = await getAllBuses()
-    const map = {}
-    busData.forEach(bus => {
-      map[bus.id] = bus
+    const fetchBuses = async () => {
+      const busData = await getAllBuses()
+      const map = {}
+      busData.forEach(bus => {
+        map[bus.id] = bus
+      })
+      setBusMap(map)
+    }
+
+    fetchBuses()
+
+    unsubscribe = subscribeShuttlesByDate(today, data => {
+      setShuttles(data)
+      setLoading(false)
     })
-    setBusMap(map)
-  }
 
-  fetchBuses()
-
-  unsubscribe = subscribeShuttlesByDate(today, data => {
-    setShuttles(data)
-    setLoading(false)
-  })
-
-  return () => unsubscribe()
-}, [today])
+    return () => unsubscribe()
+  }, [today])
 
 
   // Overview Metrics
@@ -111,27 +113,28 @@ const KV = ({ label, value, icon }) => (
       </div>
 
       {/* ================= OVERVIEW METRICS ================= */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Today</p>
-          <p className="text-base font-semibold text-gray-800 mt-1">{displayDate}</p>
+      {/* ✨ FIX: Changed grid-cols-1 to grid-cols-2 for mobile */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-8">
+        <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider">Today</p>
+          <p className="text-sm md:text-base font-semibold text-gray-800 mt-1">{displayDate}</p>
         </div>
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Running Shuttles</p>
-          <p className="text-3xl font-bold text-vitblue mt-1">{loading ? "-" : totalShuttles}</p>
+        <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider">Running Shuttles</p>
+          <p className="text-2xl md:text-3xl font-bold text-vitblue mt-1">{loading ? "-" : totalShuttles}</p>
         </div>
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Bus Types</p>
-          <p className="text-lg font-semibold text-gray-800 mt-1">
-            <span className="text-blue-600">{acCount} AC</span> • {nonAcCount} Non-AC
+        <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider">Bus Types</p>
+          <p className="text-sm md:text-lg font-semibold text-gray-800 mt-1">
+            <span className="text-blue-600">{acCount} AC</span> • {nonAcCount} Non
           </p>
         </div>
 
-        <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-xs font-bold uppercase tracking-wider">Active Routes</p>
-          <p className="text-3xl font-bold text-gray-800 mt-1">{uniqueRoutes}</p>
+        <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
+          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider">Active Routes</p>
+          <p className="text-2xl md:text-3xl font-bold text-gray-800 mt-1">{uniqueRoutes}</p>
         </div>
       </div>
 
@@ -143,7 +146,8 @@ const KV = ({ label, value, icon }) => (
             <select
               value={routeFilter}
               onChange={e => setRouteFilter(e.target.value)}
-              className="p-3 bg-gray-50 border rounded-lg outline-none focus:ring-2 focus:ring-vitblue"
+              // ✨ FIX: Added 'w-full' here so it doesn't overflow
+              className="w-full p-3 bg-gray-50 border rounded-lg outline-none focus:ring-2 focus:ring-vitblue"
             >
               <option value="ALL">All Routes</option>
               {availableRoutes.map(r => <option key={r} value={r}>{r}</option>)}
@@ -152,7 +156,8 @@ const KV = ({ label, value, icon }) => (
             <select
               value={timeFilter}
               onChange={e => setTimeFilter(e.target.value)}
-              className="p-3 bg-gray-50 border rounded-lg outline-none focus:ring-2 focus:ring-vitblue"
+              // ✨ FIX: Added 'w-full' here too
+              className="w-full p-3 bg-gray-50 border rounded-lg outline-none focus:ring-2 focus:ring-vitblue"
             >
               <option value="ALL">All Times</option>
               {availableTimes.map(t => <option key={t} value={t}>{t}</option>)}
@@ -173,13 +178,14 @@ const KV = ({ label, value, icon }) => (
           <div className="p-10 text-center text-gray-400">No matching shuttles found.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse min-w-[600px]">
               <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-bold tracking-widest">
+                {/* ✨ FIX: Reordered Columns: Bus -> Route -> Time -> Plate */}
                 <tr>
                   <th className="p-4">Bus</th>
-                  <th className="p-4">Plate</th>
                   <th className="p-4">Route</th>
                   <th className="p-4">Time</th>
+                  <th className="p-4">Plate</th>
                   <th className="p-4 hidden lg:table-cell">Type</th>
                   <th className="p-4 text-center">Actions</th>
                 </tr>
@@ -190,42 +196,49 @@ const KV = ({ label, value, icon }) => (
                   if (!bus) return null
                   return (
                     <tr key={shuttle.id} className="hover:bg-blue-50/50 transition-colors">
+                      {/* 1. Bus */}
                       <td className="p-4 font-bold text-vitblue">{bus.busNo}</td>
-                      <td className="p-4 text-sm text-gray-600">{bus.numberPlate}</td>
+                      
+                      {/* 2. Route (Swapped) */}
                       <td className="p-4 font-medium">{shuttle.route}</td>
+                      
+                      {/* 3. Time (Swapped) */}
                       <td className="p-4">
                         <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">
                           {shuttle.time}
                         </span>
                       </td>
+
+                      {/* 4. Plate (Swapped) */}
+                      <td className="p-4 text-sm text-gray-600 font-mono">{bus.numberPlate}</td>
+                      
                       <td className="p-4 hidden lg:table-cell text-gray-500 text-sm">{bus.busType}</td>
                       <td className="p-4">
                         <div className="flex justify-center gap-2">
-  <button
-    onClick={() => setSelectedBus(bus)}
-    className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-    title="View Bus"
-  >
-    View
-  </button>
+                          <button
+                            onClick={() => setSelectedBus(bus)}
+                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+                            title="View Bus"
+                          >
+                            View
+                          </button>
 
-  <button
-    onClick={() => setEditingShuttle(shuttle)}
-    className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg"
-    title="Edit"
-  >
-    Edit
-  </button>
+                          <button
+                            onClick={() => setEditingShuttle(shuttle)}
+                            className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg"
+                            title="Edit"
+                          >
+                            Edit
+                          </button>
 
-  <button
-    onClick={() => handleCancelShuttle(shuttle.id)}
-    className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
-    title="Cancel"
-  >
-    Cancel
-  </button>
-</div>
-
+                          <button
+                            onClick={() => handleCancelShuttle(shuttle.id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+                            title="Cancel"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )
@@ -235,56 +248,57 @@ const KV = ({ label, value, icon }) => (
           </div>
         )}
       </div>
-{/* ================= VIEW MODAL ================= */}
-{selectedBus && (
-  <Modal title="Bus Details" onClose={() => setSelectedBus(null)}>
-    <div className="space-y-6">
-      
-      {/* VEHICLE INFO SECTION */}
-      <div>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">
-          Vehicle Specifications
-        </p>
-        <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3">
-          <KV icon={<Hash size={16} className="text-blue-500" />} label="Bus Number" value={selectedBus.busNo} />
-          <KV icon={<Hash size={16} className="text-slate-400" />} label="Number Plate" value={selectedBus.numberPlate} />
 
-          <div className="flex justify-between items-center py-1">
-            <div className="flex items-center gap-2 text-slate-500">
-              <Bus size={16} className="text-slate-400" />
-              <span className="text-sm font-medium">Bus Type</span>
+      {/* ================= VIEW MODAL ================= */}
+      {selectedBus && (
+        <Modal title="Bus Details" onClose={() => setSelectedBus(null)}>
+          <div className="space-y-6">
+            
+            {/* VEHICLE INFO SECTION */}
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">
+                Vehicle Specifications
+              </p>
+              <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3">
+                <KV icon={<Hash size={16} className="text-blue-500" />} label="Bus Number" value={selectedBus.busNo} />
+                <KV icon={<Hash size={16} className="text-slate-400" />} label="Number Plate" value={selectedBus.numberPlate} />
+
+                <div className="flex justify-between items-center py-1">
+                  <div className="flex items-center gap-2 text-slate-500">
+                    <Bus size={16} className="text-slate-400" />
+                    <span className="text-sm font-medium">Bus Type</span>
+                  </div>
+                  <span className="px-3 py-1 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-bold shadow-sm">
+                    {selectedBus.busType}
+                  </span>
+                </div>
+
+                <KV icon={<Layers size={16} className="text-slate-400" />} label="Seat Layout" value={selectedBus.seatLayoutId} />
+              </div>
             </div>
-            <span className="px-3 py-1 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-bold shadow-sm">
-              {selectedBus.busType}
-            </span>
+
+            {/* ASSIGNMENT INFO SECTION */}
+            <div>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">
+                Route & Personnel
+              </p>
+              <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50 space-y-3">
+                <KV icon={<MapPin size={16} className="text-red-400" />} label="Morning Route" value={selectedBus.morningRoute || "Not Assigned"} />
+                <KV icon={<User size={16} className="text-blue-600" />} label="Driver Name" value={selectedBus.driver?.name || "Unassigned"} />
+                <KV icon={<Phone size={16} className="text-green-600" />} label="Driver Phone" value={selectedBus.driver?.phone || "No Contact"} />
+              </div>
+            </div>
+
+            {/* FOOTER ACTION */}
+            <button 
+              onClick={() => setSelectedBus(null)}
+              className="w-full py-3 text-slate-500 font-semibold text-sm hover:bg-slate-50 rounded-xl transition-colors"
+            >
+              Close Preview
+            </button>
           </div>
-
-          <KV icon={<Layers size={16} className="text-slate-400" />} label="Seat Layout" value={selectedBus.seatLayoutId} />
-        </div>
-      </div>
-
-      {/* ASSIGNMENT INFO SECTION */}
-      <div>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">
-          Route & Personnel
-        </p>
-        <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50 space-y-3">
-          <KV icon={<MapPin size={16} className="text-red-400" />} label="Morning Route" value={selectedBus.morningRoute || "Not Assigned"} />
-          <KV icon={<User size={16} className="text-blue-600" />} label="Driver Name" value={selectedBus.driver?.name || "Unassigned"} />
-          <KV icon={<Phone size={16} className="text-green-600" />} label="Driver Phone" value={selectedBus.driver?.phone || "No Contact"} />
-        </div>
-      </div>
-
-      {/* FOOTER ACTION */}
-      <button 
-        onClick={() => setSelectedBus(null)}
-        className="w-full py-3 text-slate-500 font-semibold text-sm hover:bg-slate-50 rounded-xl transition-colors"
-      >
-        Close Preview
-      </button>
-    </div>
-  </Modal>
-)}
+        </Modal>
+      )}
 
       {/* ================= EDIT MODAL ================= */}
       {editingShuttle && (
@@ -341,6 +355,5 @@ const KV = ({ label, value, icon }) => (
     </PageWrapper>
   )
 }
-
 
 export default AdminDashboard

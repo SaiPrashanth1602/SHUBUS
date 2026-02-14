@@ -20,7 +20,6 @@ const BUS_SEAT_LAYOUT = [
 ]
 
 // --- VISUAL COMPONENTS ---
-
 const SteeringWheel = () => (
   <div className="relative w-10 h-10 md:w-12 md:h-12 rounded-full border-4 border-gray-800 flex items-center justify-center shadow-sm bg-transparent z-10">
     <div className="absolute w-1 h-full bg-gray-800"></div>
@@ -59,13 +58,13 @@ function SeatLayout() {
   const navigate = useNavigate()
   const location = useLocation()
 
+  // 🆕 GET TIME & ROUTE FROM PREVIOUS PAGE
+  const { route: routeName = "Bus Route", time: busTime } = location.state || {}
+
   // Logic State
   const [selectedSeat, setSelectedSeat] = useState(null)
   const [bookedSeats, setBookedSeats] = useState([])
   const [loading, setLoading] = useState(false)
-
-  // Get Route Name passed from Dashboard
-  const routeName = location.state?.route || "Bus Route"
 
   // 1. Load Real Booked Seats from Firebase
   useEffect(() => {
@@ -149,19 +148,27 @@ function SeatLayout() {
 
     try {
       const studentId = user.uid
+      
+      // 🗓️ 🇮🇳 FORCE IST DATE (EXACT MATCH with StudentBooking.jsx)
+      const offset = 5.5 * 60 * 60 * 1000; // IST Offset
+      const now = new Date();
+      const istDate = new Date(now.getTime() + offset).toISOString().split('T')[0];
 
+      // 👇 SAVING DATE AND TIME HERE
       await bookSeat(studentId, busId, selectedSeat, {
         route: routeName,
-        date: new Date().toISOString().split("T")[0]
+        date: istDate, // "2026-02-14" (NOW GUARANTEED MATCH)
+        time: busTime  // "1:20 PM"
       })
 
-      // 🟢 SUCCESS -> Send to "BOOKING VIEW" (Transient Success Page)
+      // 🟢 SUCCESS -> Send to "BOOKING VIEW"
       navigate("/student/booking", {
         state: {
             busId,
             seatNumber: selectedSeat,
             status: "confirmed",
-            route: routeName
+            route: routeName,
+            time: busTime
         }
       })
 

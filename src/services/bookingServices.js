@@ -28,12 +28,18 @@ export const bookSeat = async (studentId, shuttleId, seatNumber, busDetails) => 
     throw new Error("Seat already taken!");
   }
 
+  // 🆕 EXTRACT date, time, and route from busDetails
+  const { date, time, route } = busDetails || {}
+
   // Add the ticket to the database
   return await addDoc(bookingsRef, {
     studentId: studentId,
     shuttleId: shuttleId,
     seatNumber: seatNumber,
-    busDetails: busDetails, // Save bus info so we can show it in "My Bookings"
+    busDetails: busDetails, // Keep the full object for backward compatibility
+    route: route,           // 👈 TOP LEVEL (for easy access)
+    date: date,             // 👈 TOP LEVEL (for date comparison)
+    time: time,             // 👈 TOP LEVEL (for time comparison)
     status: "confirmed",
     bookedAt: serverTimestamp()
   })

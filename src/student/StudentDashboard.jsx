@@ -4,10 +4,16 @@ import { collection, query, where, getDocs } from "firebase/firestore"
 import { db } from "../config/firebase"
 import PageWrapper from "../components/layout/PageWrapper"
 
-// Icon components for a cleaner look
+// Icon components
 const BusIcon = () => (
   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7l4-4m0 0l4 4m-4-4v18" />
+  </svg>
+)
+
+const ChevronDownIcon = () => (
+  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
   </svg>
 )
 
@@ -36,15 +42,13 @@ function StudentDashboard() {
 
       const shuttlesRef = collection(db, "shuttles")
 
-      // 🚨 FIX 1: Removed 'active' check so ALL shuttles show up
-      // 🚨 FIX 2: Only filter by date. 
+      // Only filter by date to get everything for today
       const shuttleQuery = query(
         shuttlesRef,
         where("date", "==", today) 
       )
 
       const shuttleSnap = await getDocs(shuttleQuery)
-      
       console.log("✅ Found Shuttles:", shuttleSnap.docs.length)
 
       const shuttleList = shuttleSnap.docs.map(doc => ({
@@ -96,72 +100,89 @@ function StudentDashboard() {
     <PageWrapper role="student">
       <div className="max-w-5xl mx-auto">
         {/* Header Section */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
+        <div className="mb-6">
+          <h1 className="text-2xl font-extrabold text-gray-900 tracking-tight">
             Available Shuttles
           </h1>
-          <p className="text-gray-500 mt-2 font-medium">
-            Schedule for {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+          <p className="text-gray-500 mt-1 font-medium text-sm">
+            {new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
           </p>
         </div>
 
-        {/* Filters Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-          <div className="relative">
-            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1">Route</label>
-            <select
-              value={selectedRoute}
-              onChange={e => setSelectedRoute(e.target.value)}
-              className="w-full bg-gray-50 border-none ring-1 ring-gray-200 rounded-xl p-3 pl-4 focus:ring-2 focus:ring-vitblue appearance-none transition-all cursor-pointer text-gray-700 font-medium"
-            >
-              <option value="">All Destinations</option>
-              {routes.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
+        {/* Filters Grid - ✅ CHANGED: Back to grid-cols-1 (Vertical Stack) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6 bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+          
+          {/* Route Dropdown */}
+          <div className="relative w-full">
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 ml-1">Route</label>
+            <div className="relative w-full">
+              <select
+                value={selectedRoute}
+                onChange={e => setSelectedRoute(e.target.value)}
+                // ✅ FIX: Added 'w-full' and 'truncate' to keep it inside the screen
+                className="appearance-none w-full bg-gray-50 border-none ring-1 ring-gray-200 rounded-xl py-3 pl-3 pr-8 focus:ring-2 focus:ring-vitblue outline-none text-gray-800 font-bold text-sm truncate"
+              >
+                <option value="">All Destinations</option>
+                {routes.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              {/* Custom Arrow */}
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2">
+                <ChevronDownIcon />
+              </div>
+            </div>
           </div>
 
-          <div className="relative">
-            <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 ml-1">Departure Time</label>
-            <select
-              value={selectedTime}
-              onChange={e => setSelectedTime(e.target.value)}
-              className="w-full bg-gray-50 border-none ring-1 ring-gray-200 rounded-xl p-3 pl-4 focus:ring-2 focus:ring-vitblue appearance-none transition-all cursor-pointer text-gray-700 font-medium"
-            >
-              <option value="">Any Time</option>
-              {times.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+          {/* Time Dropdown */}
+          <div className="relative w-full">
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 ml-1">Departure Time</label>
+            <div className="relative w-full">
+              <select
+                value={selectedTime}
+                onChange={e => setSelectedTime(e.target.value)}
+                // ✅ FIX: Added 'w-full' and 'truncate' here too
+                className="appearance-none w-full bg-gray-50 border-none ring-1 ring-gray-200 rounded-xl py-3 pl-3 pr-8 focus:ring-2 focus:ring-vitblue outline-none text-gray-800 font-bold text-sm truncate"
+              >
+                <option value="">Any Time</option>
+                {times.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              {/* Custom Arrow */}
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2">
+                <ChevronDownIcon />
+              </div>
+            </div>
           </div>
+
         </div>
 
         {/* Results Info */}
         <div className="flex items-center justify-between mb-4 px-1">
-          <p className="text-sm font-semibold text-gray-500">
-            Showing {filtered.length} results
+          <p className="text-xs font-bold text-gray-400 uppercase tracking-wide">
+            {filtered.length} Buses Found
           </p>
           {(selectedRoute || selectedTime) && (
             <button
               onClick={() => { setSelectedRoute(""); setSelectedTime("") }}
-              className="text-sm text-vitblue font-bold hover:underline"
+              className="text-xs text-vitblue font-bold hover:underline"
             >
               Reset Filters
             </button>
           )}
         </div>
 
-        {/* Shuttle Cards */}
-        <div className="grid gap-4 pb-10">
+        {/* Shuttle Cards - Single Column for Mobile (List View) */}
+        <div className="flex flex-col gap-4 pb-10">
           {filtered.length === 0 ? (
-            <div className="bg-gray-50 rounded-3xl py-16 px-4 text-center border-2 border-dashed border-gray-200">
-              <div className="bg-gray-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                <span className="text-2xl">🚌</span>
+            <div className="bg-gray-50 rounded-3xl py-12 px-4 text-center border-2 border-dashed border-gray-200">
+              <div className="bg-gray-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span className="text-xl">🚌</span>
               </div>
-              <h3 className="text-lg font-bold text-gray-800">No buses available</h3>
-              <p className="text-gray-500 max-w-xs mx-auto mt-2">
-                We couldn't find any shuttles scheduled for today ({today}).
+              <h3 className="text-base font-bold text-gray-800">No buses found</h3>
+              <p className="text-gray-500 text-sm mt-1">
+                Try changing your filters.
               </p>
             </div>
           ) : (
             filtered.map(shuttle => {
-                // 🚨 FIX 3: Safety Placeholder if Bus is Missing
                 const bus = busMap[shuttle.busId] || { 
                     busNo: "Unknown", 
                     numberPlate: "---", 
@@ -171,41 +192,40 @@ function StudentDashboard() {
               return (
                 <div
                   key={shuttle.id}
-                  className="group bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md hover:border-vitblue/30 transition-all flex flex-col md:flex-row md:items-center justify-between gap-6"
+                  className="group bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all flex flex-col gap-4"
                 >
                   <div className="flex items-start gap-4">
-                    <div className="hidden sm:flex bg-blue-50 text-vitblue w-12 h-12 rounded-xl items-center justify-center group-hover:bg-vitblue group-hover:text-white transition-colors">
+                    <div className="hidden sm:flex bg-blue-50 text-vitblue w-12 h-12 rounded-xl items-center justify-center">
                       <BusIcon />
                     </div>
-                    <div>
-                      <h3 className="font-extrabold text-xl text-gray-800 group-hover:text-vitblue transition-colors leading-tight">
+                    <div className="flex-1">
+                      <h3 className="font-extrabold text-lg text-gray-900 leading-tight">
                         {shuttle.route}
                       </h3>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1 text-sm font-medium">
-                        <span className="text-gray-600 bg-gray-100 px-2 py-0.5 rounded text-xs uppercase tracking-tight">
-                          Bus: {bus.busNo}
+                      
+                      <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                        <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border border-gray-200">
+                          {bus.busNo}
                         </span>
-                        <span className="text-gray-400">|</span>
-                        <span className="text-gray-600 font-mono">{bus.numberPlate}</span>
+                        <span className="text-gray-300 text-xs">|</span>
+                        <span className="text-gray-500 font-mono text-xs">{bus.numberPlate}</span>
                       </div>
+
                       <div className="flex items-center gap-4 mt-3">
-                        <div className="flex items-center text-gray-500 text-sm">
-                          <span className="mr-1.5">🕒</span>
+                        <div className="flex items-center text-gray-600 text-sm font-medium">
+                          <span className="mr-1.5 text-gray-400">🕒</span>
                           {shuttle.time}
                         </div>
-                        <div className="flex items-center text-gray-500 text-sm">
-                          <span className="mr-1.5">👤</span>
+                        <div className="flex items-center text-gray-600 text-sm font-medium">
+                          <span className="mr-1.5 text-gray-400">👤</span>
                           {bus.driver?.name || "Assigning..."}
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between md:justify-end gap-4 border-t border-gray-50 pt-4 md:border-none md:pt-0">
-                    <div className="md:hidden flex flex-col">
-                      <span className="text-[10px] text-gray-400 uppercase font-bold tracking-widest">Fare</span>
-                      <span className="font-bold text-gray-900">Complimentary</span>
-                    </div>
+                  {/* Select Button - Full width on mobile */}
+                  <div className="pt-2">
                     <button
                       onClick={() => navigate(`/student/seat-layout/${shuttle.id}`, {
                         state: {
@@ -213,7 +233,7 @@ function StudentDashboard() {
                           time: shuttle.time
                         }
                       })}
-                      className="w-full md:w-auto bg-vitblue text-white px-8 py-3.5 rounded-xl font-bold shadow-lg shadow-blue-100 hover:shadow-blue-200 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+                      className="w-full bg-vitblue text-white py-3 rounded-xl font-bold text-sm shadow-md shadow-blue-100 active:scale-[0.98] transition-all"
                     >
                       Select Seat
                     </button>
