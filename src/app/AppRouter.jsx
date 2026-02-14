@@ -34,7 +34,7 @@ function AppRouter() {
         <Route path="/student/my-bookings" element={<StudentBooking />} />
         
         <Route path="/student/seat-claim" element={<SeatClaim />} />
-
+<Route path="/seat-claim" element={<SeatClaim />} />
         {/* Admin Routes */}
         <Route path="/admin" element={<AdminDashboard />} />
         <Route path="/admin/add-shuttle" element={<AddShuttle />} />

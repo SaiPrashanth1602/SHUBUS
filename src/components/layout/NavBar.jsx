@@ -13,8 +13,8 @@ function NavBar({ role }) {
   const navItems = role === "admin" 
     ? [
         { label: "Dashboard", path: "/admin" },
-        { label: "Manage Buses", path: "/admin/buses" }, // Added useful link
         { label: "Manage Shuttles", path: "/admin/add-shuttle" },
+        { label: "Manage Buses", path: "/admin/buses" }, // Added useful link
         { label: "Bookings", path: "/admin/bookings" },
       ]
     : [

@@ -43,7 +43,7 @@ function BookingView() {
           <button
             onClick={() => {
               setClaimed(true)
-              navigate("/student/seat-claim")
+              navigate("/student/seat-claim", { state: { ticket } })
             }}
             className="mt-6 w-full border border-vitblue text-vitblue py-3 rounded-lg font-semibold hover:bg-vitlight"
           >

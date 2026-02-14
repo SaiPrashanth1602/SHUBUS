@@ -3,7 +3,7 @@ import { collection, query, where, getDocs, deleteDoc, doc } from "firebase/fire
 import { auth, db } from "../config/firebase"
 import { onAuthStateChanged } from "firebase/auth"
 import PageWrapper from "../components/layout/PageWrapper"
-
+import { useNavigate } from "react-router-dom";
 // Helper to format timestamps nicely
 const formatDate = (timestamp) => {
   if (!timestamp) return "Date Pending"
@@ -15,6 +15,7 @@ const formatDate = (timestamp) => {
 }
 
 function StudentBooking() {
+  const navigate = useNavigate();
   const [bookings, setBookings] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -133,16 +134,26 @@ function StudentBooking() {
 
                   {/* 🔴 CANCEL BUTTON (Visible for ALL 'Today' tickets) */}
                   {isToday && (
-                    <div className="mt-6 pt-4 border-t border-gray-100">
-                      <button
-                        onClick={() => handleCancel(ticket.id)}
-                        className="text-red-500 text-sm font-bold hover:text-red-700 hover:underline flex items-center gap-1"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                        Cancel Booking
-                      </button>
-                    </div>
-                  )}
+  <div className="mt-6 pt-4 border-t border-gray-100 flex justify-between items-center">
+
+    {/* Claim Seat Button */}
+    <button
+      onClick={() => navigate("/student/seat-claim", { state: { ticket } })}
+      className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-green-600 transition"
+    >
+      Claim Seat
+    </button>
+
+    {/* Cancel Button */}
+    <button
+      onClick={() => handleCancel(ticket.id)}
+      className="text-red-500 text-sm font-bold hover:text-red-700 hover:underline"
+    >
+      Cancel Booking
+    </button>
+
+  </div>
+)}
                 </div>
 
                 {/* Right Side */}
