@@ -1,96 +1,111 @@
 import { useEffect, useState } from "react"
-import { useNavigate } from "react-router-dom"
-import { Edit2, Eye, Trash2, Plus, Bus, MapPin, User, Hash, Layers, Phone} from "lucide-react"
 import PageWrapper from "../components/layout/PageWrapper"
-import { getAllBuses, disableBus, updateBus } from "../services/busServices"
+import { getAllBuses, disableBus } from "../services/busServices"
+import { useNavigate } from "react-router-dom"
 
 function Buses() {
   const navigate = useNavigate()
   const [buses, setBuses] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedBus, setSelectedBus] = useState(null)
-  const [editingBus, setEditingBus] = useState(null)
 
   useEffect(() => {
     const fetchBuses = async () => {
       try {
         const data = await getAllBuses()
         setBuses(data)
+      } catch (err) {
+        console.error("Failed to load buses", err)
       } finally {
         setLoading(false)
       }
     }
+
     fetchBuses()
   }, [])
 
   const handleRemove = async (busId) => {
-    if (!window.confirm("Archive this bus? It can be restored later.")) return
+    const confirm = window.confirm("Remove this bus from system?")
+    if (!confirm) return
+
     await disableBus(busId)
     setBuses(prev => prev.filter(b => b.id !== busId))
   }
 
-  const handleSaveEdit = async () => {
-    const updates = {
-      morningRoute: editingBus.morningRoute || "",
-      busType: editingBus.busType,
-      seatLayoutId: editingBus.seatLayoutId,
-      driver: {
-        name: editingBus.driver?.name || "",
-        phone: editingBus.driver?.phone || ""
-      }
-    }
+  const handleView = (bus) => {
+    setSelectedBus(bus)
+  }
 
-    await updateBus(editingBus.id, updates)
-
-    setBuses(prev =>
-      prev.map(b => (b.id === editingBus.id ? { ...b, ...updates } : b))
-    )
-    setEditingBus(null)
+  const handleEdit = () => {
+    alert("Edit bus coming next")
   }
 
   return (
     <PageWrapper role="admin">
-      {/* HEADER */}
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-3xl font-extrabold">Bus Master</h1>
-          <p className="text-slate-500">Hardware & driver management</p>
-        </div>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold text-vitblue">
+          Bus Master
+        </h1>
+
         <button
           onClick={() => navigate("/admin/add-bus")}
-          className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-lg"
+          className="bg-vitblue text-white px-4 py-2 rounded-lg font-semibold"
         >
-          <Plus size={18} /> Add Bus
+          + Add Bus
         </button>
       </div>
 
+
       {loading ? (
-        <p className="text-center text-gray-400 py-20">Loading buses…</p>
+        <p className="text-gray-500">Loading buses...</p>
+      ) : buses.length === 0 ? (
+        <p className="text-gray-500">No buses added yet.</p>
       ) : (
-        <div className="bg-white rounded-2xl border overflow-hidden">
+        <div className="bg-white rounded-xl shadow overflow-x-auto">
           <table className="w-full text-left">
-            <thead className="bg-gray-50 text-xs uppercase">
+            <thead className="bg-vitlight">
               <tr>
-                <th className="p-4">Bus</th>
-                <th className="p-4">Morning Route</th>
-                <th className="p-4">Type</th>
-                <th className="p-4">Driver</th>
-                <th className="p-4 text-center">Actions</th>
+                <th className="p-3">Bus No</th>
+                <th className="p-3">Number Plate</th>
+                <th className="p-3">Type</th>
+                <th className="p-3">Seat Layout</th>
+                <th className="p-3">Driver</th>
+                <th className="p-3">Actions</th>
               </tr>
             </thead>
+
             <tbody>
               {buses.map(bus => (
-                <tr key={bus.id} className="border-t hover:bg-blue-50/30">
-                  <td className="p-4 font-bold">{bus.busNo}</td>
-                  <td className="p-4">{bus.morningRoute || "—"}</td>
-                  <td className="p-4">{bus.busType}</td>
-                  <td className="p-4">{bus.driver?.name || "Unassigned"}</td>
-                  <td className="p-4">
-                    <div className="flex justify-center gap-2">
-                      <IconBtn onClick={() => setSelectedBus(bus)}><Eye size={16} /></IconBtn>
-                      <IconBtn onClick={() => setEditingBus(bus)}><Edit2 size={16} /></IconBtn>
-                      <IconBtn danger onClick={() => handleRemove(bus.id)}><Trash2 size={16} /></IconBtn>
-                    </div>
+                <tr key={bus.id} className="border-t">
+                  <td className="p-3 font-semibold">{bus.busNo}</td>
+                  <td className="p-3">{bus.numberPlate}</td>
+                  <td className="p-3">{bus.busType}</td>
+                  <td className="p-3">{bus.seatLayoutId}</td>
+                  <td className="p-3">
+                    {bus.driver?.name || "Not assigned"}
+                  </td>
+
+                  <td className="p-3 flex gap-2">
+                    <button
+                      onClick={() => handleView(bus)}
+                      className="px-3 py-1 text-sm rounded bg-gray-200 hover:bg-gray-300"
+                    >
+                      View
+                    </button>
+
+                    <button
+                      onClick={handleEdit}
+                      className="px-3 py-1 text-sm rounded bg-blue-100 text-blue-700 hover:bg-blue-200"
+                    >
+                      Edit
+                    </button>
+
+                    <button
+                      onClick={() => handleRemove(bus.id)}
+                      className="px-3 py-1 text-sm rounded bg-red-100 text-red-700 hover:bg-red-200"
+                    >
+                      Remove
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -99,139 +114,32 @@ function Buses() {
         </div>
       )}
 
-      {/* ================= VIEW MODAL ================= */}
-{selectedBus && (
-  <Modal title="Bus Details" onClose={() => setSelectedBus(null)}>
-    <div className="space-y-6">
-      
-      {/* VEHICLE INFO SECTION */}
-      <div>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">
-          Vehicle Specifications
-        </p>
-        <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3">
-          <KV icon={<Hash size={16} className="text-blue-500" />} label="Bus Number" value={selectedBus.busNo} />
-          <KV icon={<Hash size={16} className="text-slate-400" />} label="Number Plate" value={selectedBus.numberPlate} />
-          <div className="flex justify-between items-center py-1">
-            <div className="flex items-center gap-2 text-slate-500">
-              <Bus size={16} className="text-slate-400" />
-              <span className="text-sm font-medium">Bus Type</span>
+      {/* VIEW DETAILS MODAL */}
+      {selectedBus && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-xl shadow max-w-md w-full">
+            <h2 className="text-lg font-bold mb-4">Bus Details</h2>
+
+            <div className="space-y-2 text-sm">
+              <p><b>Bus No:</b> {selectedBus.busNo}</p>
+              <p><b>Number Plate:</b> {selectedBus.numberPlate}</p>
+              <p><b>Type:</b> {selectedBus.busType}</p>
+              <p><b>Seat Layout:</b> {selectedBus.seatLayoutId}</p>
+              <p><b>Driver:</b> {selectedBus.driver?.name || "N/A"}</p>
+              <p><b>Driver Phone:</b> {selectedBus.driver?.phone || "N/A"}</p>
             </div>
-            <span className="px-3 py-1 bg-white border border-slate-200 text-slate-700 rounded-lg text-xs font-bold shadow-sm">
-              {selectedBus.busType}
-            </span>
+
+            <button
+              onClick={() => setSelectedBus(null)}
+              className="mt-5 w-full bg-vitblue text-white py-2 rounded-lg font-semibold"
+            >
+              Close
+            </button>
           </div>
-          <KV icon={<Layers size={16} className="text-slate-400" />} label="Seat Layout" value={selectedBus.seatLayoutId} />
         </div>
-      </div>
-
-      {/* ASSIGNMENT INFO SECTION */}
-      <div>
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">
-          Route & Personnel
-        </p>
-        <div className="bg-blue-50/50 rounded-2xl p-4 border border-blue-100/50 space-y-3">
-          <KV icon={<MapPin size={16} className="text-red-400" />} label="Morning Route" value={selectedBus.morningRoute || "Not Assigned"} />
-          <KV icon={<User size={16} className="text-blue-600" />} label="Driver Name" value={selectedBus.driver?.name || "Unassigned"} />
-          <KV icon={<Phone size={16} className="text-green-600" />} label="Driver Phone" value={selectedBus.driver?.phone || "No Contact"} />
-        </div>
-      </div>
-
-      {/* FOOTER ACTION */}
-      <button 
-        onClick={() => setSelectedBus(null)}
-        className="w-full py-3 text-slate-500 font-semibold text-sm hover:bg-slate-50 rounded-xl transition-colors"
-      >
-        Close Preview
-      </button>
-    </div>
-  </Modal>
-)}
-
-      {/* ================= EDIT MODAL ================= */}
-      {editingBus && (
-        <Modal title="Edit Bus (Safe Fields Only)" onClose={() => setEditingBus(null)}>
-          <ReadOnly label="Bus Number" value={editingBus.busNo} />
-          <ReadOnly label="Number Plate" value={editingBus.numberPlate} />
-
-          <Field label="Morning Route" value={editingBus.morningRoute || ""}
-            onChange={v => setEditingBus({ ...editingBus, morningRoute: v })} />
-
-          <Field label="Seat Layout" value={editingBus.seatLayoutId}
-            onChange={v => setEditingBus({ ...editingBus, seatLayoutId: v })} />
-
-          <select
-            className="w-full p-3 border rounded-xl"
-            value={editingBus.busType}
-            onChange={e => setEditingBus({ ...editingBus, busType: e.target.value })}
-          >
-            <option value="Non-AC">Non-AC</option>
-            <option value="AC">AC</option>
-          </select>
-
-          <Field label="Driver Name" value={editingBus.driver?.name || ""}
-            onChange={v => setEditingBus({ ...editingBus, driver: { ...editingBus.driver, name: v } })} />
-
-          <Field label="Driver Phone" value={editingBus.driver?.phone || ""}
-            onChange={v => setEditingBus({ ...editingBus, driver: { ...editingBus.driver, phone: v } })} />
-
-          <button
-            onClick={handleSaveEdit}
-            className="mt-4 w-full bg-blue-600 text-white py-3 rounded-xl font-bold"
-          >
-            Save Changes
-          </button>
-        </Modal>
       )}
     </PageWrapper>
   )
 }
-
-/* ---------- Helpers ---------- */
-
-const IconBtn = ({ children, onClick, danger }) => (
-  <button
-    onClick={onClick}
-    className={`p-2 rounded-lg ${danger ? "bg-red-50 text-red-600" : "bg-slate-100 text-slate-600"}`}
-  >
-    {children}
-  </button>
-)
-
-const Modal = ({ title, children, onClose }) => (
-  <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-    <div className="bg-white rounded-2xl p-6 w-full max-w-md">
-      <div className="flex justify-between mb-4">
-        <h2 className="font-bold text-lg">{title}</h2>
-        <button onClick={onClose}>✕</button>
-      </div>
-      <div className="space-y-3">{children}</div>
-    </div>
-  </div>
-)
-
-const KV = ({ label, value, icon }) => (
-  <div className="flex justify-between items-center text-sm">
-    <div className="flex items-center gap-2 text-gray-500">{icon}{label}</div>
-    <span className="font-semibold">{value}</span>
-  </div>
-)
-
-const ReadOnly = ({ label, value }) => (
-  <div className="text-sm text-gray-500">
-    <strong>{label}:</strong> {value}
-  </div>
-)
-
-const Field = ({ label, value, onChange }) => (
-  <div>
-    <label className="text-xs font-bold uppercase text-gray-400">{label}</label>
-    <input
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      className="w-full p-3 border rounded-xl"
-    />
-  </div>
-)
 
 export default Buses
