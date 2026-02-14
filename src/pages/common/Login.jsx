@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useRef } from "react" // 1. Import useRef
 import { useNavigate } from "react-router-dom"
 import vitLogo from "../../assets/vit-logo.png"
 import { auth, db } from "../../config/firebase"
@@ -23,12 +23,19 @@ function Login() {
   const [role, setRole] = useState("student")
   const [regNo, setRegNo] = useState("") 
   const [password, setPassword] = useState("")
-  const [showPassword, setShowPassword] = useState(false) // ✨ New State for Toggle
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  
   const navigate = useNavigate()
+  
+  // 2. Create a Reference to the password input
+  const passwordInputRef = useRef(null)
 
-  const handleLogin = async () => {
+  // 3. Updated Login Logic (Accepts event 'e')
+  const handleLogin = async (e) => {
+    e.preventDefault() // 🛑 STOP page reload on form submit
+    
     setError("")
     setLoading(true)
 
@@ -90,6 +97,14 @@ function Login() {
     setLoading(false)
   }
 
+  // 4. Handle "Enter" on Register Number input
+  const handleRegNoKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault() // Don't submit yet
+      passwordInputRef.current?.focus() // Jump to password
+    }
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-vitlight">
       <div className="bg-white w-[380px] p-8 rounded-2xl shadow-lg">
@@ -101,46 +116,53 @@ function Login() {
 
         {/* Role Toggle Buttons */}
         <div className="flex bg-gray-100 rounded-lg mb-5 p-1">
-          <button onClick={() => setRole("student")} className={`w-1/2 py-2 rounded-md font-semibold transition ${role === "student" ? "bg-vitblue text-white" : "text-gray-600"}`}>Student</button>
-          <button onClick={() => setRole("admin")} className={`w-1/2 py-2 rounded-md font-semibold transition ${role === "admin" ? "bg-vitblue text-white" : "text-gray-600"}`}>Admin</button>
+          <button type="button" onClick={() => setRole("student")} className={`w-1/2 py-2 rounded-md font-semibold transition ${role === "student" ? "bg-vitblue text-white" : "text-gray-600"}`}>Student</button>
+          <button type="button" onClick={() => setRole("admin")} className={`w-1/2 py-2 rounded-md font-semibold transition ${role === "admin" ? "bg-vitblue text-white" : "text-gray-600"}`}>Admin</button>
         </div>
 
-        <input 
-          type="text" 
-          placeholder={role === "student" ? "Register Number" : "Admin Username"} 
-          value={regNo} 
-          onChange={(e) => setRegNo(e.target.value)} 
-          className="w-full mb-3 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-vitblue"
-        />
+        {/* 5. Wrap inputs in a FORM tag */}
+        <form onSubmit={handleLogin}>
+            
+            <input 
+              type="text" 
+              placeholder={role === "student" ? "Register Number" : "Admin Username"} 
+              value={regNo} 
+              onChange={(e) => setRegNo(e.target.value)} 
+              onKeyDown={handleRegNoKeyDown} // ✨ Attach Enter key listener
+              className="w-full mb-3 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-vitblue"
+              autoFocus // Optional: Starts cursor here automatically
+            />
 
-        {/* ✨ Password Input with Toggle Button */}
-        <div className="relative w-full mb-4">
-          <input 
-            type={showPassword ? "text" : "password"} 
-            placeholder="Password" 
-            value={password} 
-            onChange={(e) => setPassword(e.target.value)} 
-            className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-vitblue pr-10" // Added padding-right so text doesn't hit the icon
-          />
-          <button
-            type="button"
-            onClick={() => setShowPassword(!showPassword)}
-            className="absolute right-3 top-3.5 hover:opacity-70 transition outline-none"
-            tabIndex="-1" // Prevents tab key from stopping on the eye icon
-          >
-            {showPassword ? <EyeSlashIcon /> : <EyeIcon />}
-          </button>
-        </div>
+            {/* ✨ Password Input with Toggle Button */}
+            <div className="relative w-full mb-4">
+              <input 
+                ref={passwordInputRef} // ✨ Attach Ref here
+                type={showPassword ? "text" : "password"} 
+                placeholder="Password" 
+                value={password} 
+                onChange={(e) => setPassword(e.target.value)} 
+                className="w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-vitblue pr-10"
+              />
+              <button
+                type="button" // Important: prevents this button from submitting form
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-3.5 hover:opacity-70 transition outline-none"
+                tabIndex="-1"
+              >
+                {showPassword ? <EyeSlashIcon /> : <EyeIcon />}
+              </button>
+            </div>
 
-        {error && <p className="text-red-500 text-sm mb-3 text-center">{error}</p>}
+            {error && <p className="text-red-500 text-sm mb-3 text-center">{error}</p>}
 
-        <button 
-          onClick={handleLogin} 
-          disabled={loading} 
-          className={`w-full text-white py-3 rounded-lg font-semibold transition ${loading ? "bg-gray-400" : "bg-vitblue hover:opacity-90"}`}
-        >
-          {loading ? "Logging in..." : "Login"}
-        </button>
+            <button 
+              type="submit" // ✨ Makes Enter key on password field work
+              disabled={loading} 
+              className={`w-full text-white py-3 rounded-lg font-semibold transition ${loading ? "bg-gray-400" : "bg-vitblue hover:opacity-90"}`}
+            >
+              {loading ? "Logging in..." : "Login"}
+            </button>
+        </form>
 
         <p className="text-xs text-center text-gray-400 mt-4">VIT Shuttle Seat Booking System</p>
       </div>

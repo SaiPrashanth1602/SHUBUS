@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { collection, query, where, getDocs } from "firebase/firestore"
 import { auth, db } from "../config/firebase"
+import { onAuthStateChanged } from "firebase/auth" // 👈 Added Listener Import
 import PageWrapper from "../components/layout/PageWrapper"
 
 // Helper to format timestamps nicely
@@ -19,19 +20,21 @@ function StudentBooking() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const fetchMyBookings = async () => {
+    // 🛡️ REFRESH FIX: Use a listener instead of a one-time check
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      
+      // 1. If user is NOT logged in (or just logged out)
+      if (!user) {
+          console.log("❌ No user logged in")
+          setLoading(false)
+          setBookings([]) // Clear data
+          return
+      }
+
+      // 2. User IS logged in -> Fetch Data
+      console.log("🔄 User confirmed:", user.uid)
+      
       try {
-        const user = auth.currentUser
-        
-        if (!user) {
-            console.log("❌ No user logged in")
-            setLoading(false)
-            return
-        }
-
-        console.log("🔄 Fetching bookings for:", user.uid)
-
-        // 1. Get bookings for this specific student
         const q = query(
           collection(db, "bookings"),
           where("studentId", "==", user.uid)
@@ -45,7 +48,7 @@ function StudentBooking() {
           ...doc.data()
         }))
 
-        // 2. Sort them (Newest first)
+        // Sort them (Newest first)
         myBookings.sort((a, b) => {
             const timeA = a.bookedAt?.seconds || 0
             const timeB = b.bookedAt?.seconds || 0
@@ -58,9 +61,10 @@ function StudentBooking() {
       } finally {
         setLoading(false)
       }
-    }
+    })
 
-    fetchMyBookings()
+    // Cleanup: Stop listening when component unmounts
+    return () => unsubscribe()
   }, [])
 
   return (
@@ -68,8 +72,9 @@ function StudentBooking() {
       <h1 className="text-2xl font-bold text-vitblue mb-6">My Bookings</h1>
 
       {loading ? (
-        <div className="text-center py-20 text-gray-500 animate-pulse">
-            Loading your tickets...
+        <div className="text-center py-20 flex flex-col items-center">
+            <div className="w-10 h-10 border-4 border-vitblue border-t-transparent rounded-full animate-spin mb-4"></div>
+            <p className="text-gray-500 text-lg animate-pulse">Loading your tickets...</p>
         </div>
       ) : bookings.length === 0 ? (
         <div className="text-center py-20 bg-gray-50 rounded-xl border border-dashed border-gray-300">
@@ -108,11 +113,11 @@ function StudentBooking() {
                         </p>
                     </div>
                     <div>
-                         <p className="text-xs text-gray-400 font-bold uppercase">BUS ID</p>
-                         <p className="font-mono text-gray-600 mt-1">
+                          <p className="text-xs text-gray-400 font-bold uppercase">BUS ID</p>
+                          <p className="font-mono text-gray-600 mt-1">
                             {/* Shorten the shuttle ID for display */}
-                            {(ticket.shuttleId || "---").substring(0, 6).toUpperCase()}
-                         </p>
+                            {(ticket.shuttleId || ticket.busId || "---").substring(0, 6).toUpperCase()}
+                          </p>
                     </div>
                 </div>
               </div>

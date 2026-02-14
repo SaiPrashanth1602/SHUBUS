@@ -2,9 +2,9 @@ import { useState } from "react"
 import PageWrapper from "../components/layout/PageWrapper"
 import { useNavigate } from "react-router-dom"
 
-
 function SeatClaim() {
   const [claimed, setClaimed] = useState(false)
+  const navigate = useNavigate() // 👈 THIS WAS MISSING!
 
   const handleClaim = () => {
     // future: GPS + radius validation
@@ -40,14 +40,15 @@ function SeatClaim() {
             <div className="text-green-600 text-lg font-semibold mb-4">
               ✅ Seat Successfully Claimed
             </div>
-<button
-  onClick={() => navigate("/student/booking")}
-  className="mt-4 w-full bg-vitblue text-white py-3 rounded-lg font-semibold"
->
-  Back to Booking
-</button>
 
-            <p className="text-gray-600 text-sm">
+            <button
+              onClick={() => navigate("/student")} 
+              className="mt-4 w-full bg-vitblue text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition"
+            >
+              Back to Dashboard
+            </button>
+
+            <p className="text-gray-600 text-sm mt-4">
               You may now board the bus.
             </p>
           </>
