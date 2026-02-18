@@ -9,29 +9,28 @@ function AddBus() {
   const [busNo, setBusNo] = useState("")
   const [numberPlate, setNumberPlate] = useState("")
   const [busType, setBusType] = useState("Non-AC")
-  const [seatLayoutId, setSeatLayoutId] = useState("STD_40")
   const [driverName, setDriverName] = useState("")
   const [driverPhone, setDriverPhone] = useState("")
   const [loading, setLoading] = useState(false)
-
+const [gpsId, setGpsId] = useState("")
   const handleSubmit = async () => {
-    if (!busNo || !numberPlate) {
-      alert("Bus No and Number Plate are required")
-      return
-    }
+    if (!busNo || !numberPlate || !gpsId) {
+  alert("Bus No, Number Plate and GPS ID are required")
+  return
+}
     setLoading(true)
     try {
       await addBus({
-        busNo,
-        numberPlate: numberPlate.replace(/[^A-Z0-9]/gi, "").toUpperCase(),
-        busType,
-        seatLayoutId,
-        morningRoute,
-        driver: {
-          name: driverName || "Not assigned",
-          phone: driverPhone || ""
-        }
-      })
+  busNo,
+  gpsId: gpsId.trim(),  // 🔥 add this
+  numberPlate: numberPlate.replace(/[^A-Z0-9]/gi, "").toUpperCase(),
+  busType,
+  morningRoute,
+  driver: {
+    name: driverName || "Not assigned",
+    phone: driverPhone || ""
+  }
+})
       navigate("/admin/buses")
     } catch (err) {
       console.error("Failed to add bus", err)
@@ -87,16 +86,7 @@ function AddBus() {
               </select>
             </div>
 
-            <div className="space-y-1">
-              <label className="text-sm font-semibold text-gray-600">Seat Layout</label>
-              <input
-                type="text"
-                placeholder="STD_40"
-                value={seatLayoutId}
-                onChange={e => setSeatLayoutId(e.target.value)}
-                className="w-full p-3 border rounded-lg"
-              />
-            </div>
+
           </div>
 
           <hr className="my-2 border-gray-100" />
@@ -133,6 +123,17 @@ function AddBus() {
                 className="w-full p-3 border rounded-lg"
               />
             </div>
+
+            <div className="space-y-1">
+  <label className="text-sm font-semibold text-gray-600">GPS Device ID</label>
+  <input
+    type="text"
+    placeholder="e.g. bus1"
+    value={gpsId}
+    onChange={e => setGpsId(e.target.value)}
+    className="w-full p-3 border rounded-lg"
+  />
+</div>
           </div>
 
           {/* Action Buttons: Stack on mobile, side-by-side on desktop */}

@@ -16,14 +16,22 @@ const shuttlesRef = collection(db, "shuttles")
 
 // ➕ Add running shuttle
 // shuttleServices.js
+// Inside shuttleServices.js
+
 export const addShuttle = async (shuttleData) => {
-  // 🛑 SAFETY: Never add a shuttle without a valid busId
+  // Check for both busId and gpsId
   if (!shuttleData.busId) {
     throw new Error("Cannot add shuttle: busId is missing");
+  }
+  
+  if (!shuttleData.gpsId) {
+    throw new Error("Cannot add shuttle: This bus has no GPS ID linked.");
   }
 
   return await addDoc(shuttlesRef, {
     ...shuttleData,
+    totalSeats: 50,
+    bookedSeats: 0,
     active: true,
     createdAt: serverTimestamp()
   })

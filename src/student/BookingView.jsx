@@ -1,4 +1,3 @@
-import { useState } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import PageWrapper from "../components/layout/PageWrapper"
 
@@ -6,58 +5,47 @@ function BookingView() {
   const { state } = useLocation()
   const navigate = useNavigate()
 
-  // ✅ ADD IT HERE
-  const [claimed, setClaimed] = useState(false)
-
   if (!state) {
     return (
       <PageWrapper role="student">
-        <p className="text-center text-gray-500">
-          No booking found
-        </p>
+        <p className="text-center text-gray-500">No booking found</p>
       </PageWrapper>
     )
   }
 
-  const { busId, seatNumber } = state
+  const { bookingId, busId, seatNumber, route, time } = state
 
   return (
     <PageWrapper role="student">
-      <h1 className="text-2xl font-bold text-vitblue mb-6">
+      <h1 className="text-2xl font-bold text-blue-600 mb-6">
         Booking Confirmed 🎉
       </h1>
 
-      <div className="bg-white p-6 rounded-xl shadow max-w-md mx-auto">
-        <div className="space-y-3">
-          <p><b>Bus ID:</b> {busId}</p>
-          <p><b>Seat Number:</b> {seatNumber}</p>
-          <p>
-            <b>Status:</b>{" "}
-            <span className={claimed ? "text-green-600" : "text-yellow-600"}>
-              {claimed ? "Claimed" : "Booked"}
-            </span>
-          </p>
-        </div>
+      <div className="bg-white p-6 rounded-xl shadow max-w-md mx-auto space-y-3">
+        <p><b>Route:</b> {route}</p>
+        <p><b>Time:</b> {time}</p>
+        <p><b>Seat:</b> {seatNumber}</p>
 
-        {!claimed ? (
-          <button
-            onClick={() => {
-              setClaimed(true)
-              navigate("/student/seat-claim", { state: { ticket } })
-            }}
-            className="mt-6 w-full border border-vitblue text-vitblue py-3 rounded-lg font-semibold hover:bg-vitlight"
-          >
-            Claim Seat
-          </button>
-        ) : (
-          <p className="mt-6 text-green-600 text-center font-semibold">
-            Seat Already Claimed
-          </p>
-        )}
+        <button
+          onClick={() =>
+            navigate("/student/seat-claim", {
+              state: {
+                bookingId,
+                busId,
+                seatNumber,
+                route,
+                time
+              }
+            })
+          }
+          className="mt-6 w-full bg-blue-600 text-white py-3 rounded-lg font-semibold"
+        >
+          Claim Seat
+        </button>
 
         <button
           onClick={() => navigate("/student")}
-          className="mt-3 w-full bg-vitblue text-white py-3 rounded-lg font-semibold hover:opacity-90"
+          className="mt-3 w-full border border-blue-600 text-blue-600 py-3 rounded-lg font-semibold"
         >
           Back to Dashboard
         </button>

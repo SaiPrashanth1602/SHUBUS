@@ -4,6 +4,11 @@ import { auth, db } from "../config/firebase"
 import { onAuthStateChanged } from "firebase/auth"
 import PageWrapper from "../components/layout/PageWrapper"
 import { useNavigate } from "react-router-dom";
+import { runTransaction } from "firebase/firestore"
+import ConfirmModal from "../components/ui/ConfirmModal"
+import Toast from "../components/ui/Toast"
+
+
 // Helper to format timestamps nicely
 const formatDate = (timestamp) => {
   if (!timestamp) return "Date Pending"
@@ -18,6 +23,16 @@ function StudentBooking() {
   const navigate = useNavigate();
   const [bookings, setBookings] = useState([])
   const [loading, setLoading] = useState(true)
+const [selectedTicket, setSelectedTicket] = useState(null)
+const [showCancelModal, setShowCancelModal] = useState(false)
+const [modalMessage, setModalMessage] = useState("")
+const [modalType, setModalType] = useState("default")
+const [showMessageModal, setShowMessageModal] = useState(false)
+const [toastMessage, setToastMessage] = useState("")
+const [toastType, setToastType] = useState("success")
+const [showToast, setShowToast] = useState(false)
+const [cancelLoading, setCancelLoading] = useState(false)
+
 
   // 🇮🇳 FORCE IST DATE (YYYY-MM-DD)
   const offset = 5.5 * 60 * 60 * 1000; // IST Offset
@@ -55,16 +70,54 @@ function StudentBooking() {
     return () => unsubscribe()
   }, [])
 
-  const handleCancel = async (ticketId) => {
-    if (!window.confirm("Are you sure? Seat will be released immediately.")) return
-    try {
-      await deleteDoc(doc(db, "bookings", ticketId))
-      setBookings(prev => prev.filter(b => b.id !== ticketId))
-      alert("✅ Ticket cancelled.")
-    } catch (err) {
-      alert("Failed to cancel.")
-    }
+ const handleCancel = async () => {
+  if (!selectedTicket) return
+
+  setCancelLoading(true)
+
+  try {
+    const shuttleRef = doc(db, "shuttles", selectedTicket.shuttleId)
+    const bookingRef = doc(db, "bookings", selectedTicket.id)
+
+    await runTransaction(db, async (transaction) => {
+      const shuttleSnap = await transaction.get(shuttleRef)
+      const bookingSnap = await transaction.get(bookingRef)
+
+      if (!bookingSnap.exists()) throw new Error("Booking not found")
+
+      const bookingData = bookingSnap.data()
+      if (bookingData.status !== "confirmed") {
+        throw new Error("Booking already cancelled")
+      }
+
+      transaction.delete(bookingRef)
+
+      if (shuttleSnap.exists()) {
+        const currentBooked = shuttleSnap.data().bookedSeats || 0
+        transaction.update(shuttleRef, {
+          bookedSeats: Math.max(0, currentBooked - 1)
+        })
+      }
+    })
+
+    // Smooth card fade-out
+    setBookings(prev => prev.filter(b => b.id !== selectedTicket.id))
+
+    setToastType("success")
+    setToastMessage("Booking cancelled successfully")
+    setShowToast(true)
+
+  } catch (err) {
+    setToastType("danger")
+    setToastMessage(err.message)
+    setShowToast(true)
+  } finally {
+    setCancelLoading(false)
+    setShowCancelModal(false)
   }
+}
+
+
 
   return (
     <PageWrapper role="student">
@@ -82,7 +135,7 @@ function StudentBooking() {
 
             // 🛑 TESTING MODE: SIMPLE DATE CHECK
             // We ignore time. If date is today, show cancel button.
-
+const isClaimed = ticket.claimed === true
             const isToday = ticket.date === todayStr
             // 🐛 DEBUG LOG
             console.log("🎫 Ticket:", ticket.id)
@@ -134,26 +187,49 @@ function StudentBooking() {
 
                   {/* 🔴 CANCEL BUTTON (Visible for ALL 'Today' tickets) */}
                   {isToday && (
-  <div className="mt-6 pt-4 border-t border-gray-100 flex justify-between items-center">
+                    <div className="mt-6 pt-4 border-t border-gray-100 flex justify-between items-center">
 
-    {/* Claim Seat Button */}
-    <button
-      onClick={() => navigate("/student/seat-claim", { state: { ticket } })}
-      className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-green-600 transition"
-    >
-      Claim Seat
-    </button>
-
-    {/* Cancel Button */}
-    <button
-      onClick={() => handleCancel(ticket.id)}
-      className="text-red-500 text-sm font-bold hover:text-red-700 hover:underline"
-    >
-      Cancel Booking
-    </button>
-
-  </div>
+                      {/* Claim Seat Button */}
+                      {isToday && !isClaimed && (
+  <button
+    onClick={() =>
+      navigate("/student/seat-claim", {
+        state: {
+          bookingId: ticket.id,
+          busId: ticket.shuttleId,
+          seatNumber: ticket.seatNumber,
+          route: ticket.route,
+          gpsId: ticket.gpsId
+        }
+      })
+    }
+    className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-green-600 transition"
+  >
+    Claim Seat
+  </button>
 )}
+
+{isClaimed && (
+  <span className="text-sm font-bold text-red-600">
+    ✅ Seat Claimed
+  </span>
+)}
+
+                      {/* Cancel Button */}
+                      <button
+  onClick={() => {
+    setSelectedTicket(ticket)
+    setShowCancelModal(true)
+  }}
+  disabled={cancelLoading}
+  className="text-red-500 text-sm font-bold hover:text-red-700 hover:underline disabled:opacity-50"
+>
+  Cancel Booking
+</button>
+
+
+                    </div>
+                  )}
                 </div>
 
                 {/* Right Side */}
@@ -168,6 +244,26 @@ function StudentBooking() {
           })}
         </div>
       )}
+      {/* Cancel Confirmation Modal */}
+<ConfirmModal
+  open={showCancelModal}
+  title="Cancel Booking?"
+  message="Are you sure you want to cancel this booking? This action cannot be undone."
+  confirmText="Yes, Cancel"
+  cancelText="Keep Booking"
+  type="danger"
+  onConfirm={handleCancel}
+  onCancel={() => setShowCancelModal(false)}
+/>
+
+<Toast
+  show={showToast}
+  message={toastMessage}
+  type={toastType}
+  onClose={() => setShowToast(false)}
+/>
+
+
     </PageWrapper>
   )
 }

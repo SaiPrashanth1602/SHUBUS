@@ -1,81 +1,108 @@
 import { db } from "../config/firebase"
 import {
   collection,
-  addDoc,
   getDocs,
   query,
   where,
   serverTimestamp,
   doc,
-  updateDoc
+  onSnapshot,
+  runTransaction
 } from "firebase/firestore"
 
-// This points to your "BOOKING DB"
 const bookingsRef = collection(db, "bookings")
 
-// 🎟️ 1. BOOK A SEAT (For Student)
-export const bookSeat = async (studentId, shuttleId, seatNumber, busDetails) => {
-  // Check if seat is already taken (Double check security)
-  const q = query(
-    bookingsRef,
-    where("shuttleId", "==", shuttleId),
-    where("seatNumber", "==", seatNumber),
-    where("status", "==", "confirmed")
-  );
-  
-  const snapshot = await getDocs(q);
-  if (!snapshot.empty) {
-    throw new Error("Seat already taken!");
-  }
+// 🎟️ 1. CLAIM SEAT (Verification via GPS)
+export const claimSeat = async (bookingId, studentId) => {
+  const bookingRef = doc(db, "bookings", bookingId)
 
-  // 🆕 EXTRACT date, time, and route from busDetails
-  const { date, time, route } = busDetails || {}
+  await runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(bookingRef)
+    if (!snap.exists()) throw new Error("Booking not found")
 
-  // Add the ticket to the database
-  return await addDoc(bookingsRef, {
-    studentId: studentId,
-    shuttleId: shuttleId,
-    seatNumber: seatNumber,
-    busDetails: busDetails, // Keep the full object for backward compatibility
-    route: route,           // 👈 TOP LEVEL (for easy access)
-    date: date,             // 👈 TOP LEVEL (for date comparison)
-    time: time,             // 👈 TOP LEVEL (for time comparison)
-    status: "confirmed",
-    bookedAt: serverTimestamp()
+    const booking = snap.data()
+    if (booking.studentId !== studentId) throw new Error("Unauthorized claim attempt")
+    if (booking.claimed) throw new Error("Seat already claimed")
+
+    transaction.update(bookingRef, {
+      claimed: true,
+      claimedAt: serverTimestamp()
+    })
   })
 }
 
-// 📋 2. GET BOOKED SEATS FOR A BUS (For Seat Layout)
-// This ensures Student B sees Student A's red seat
-export const getBookedSeats = async (shuttleId) => {
-  const q = query(
-    bookingsRef, 
-    where("shuttleId", "==", shuttleId),
-    where("status", "==", "confirmed")
-  );
+// 🎟️ 2. BOOK A SEAT
+export const bookSeat = async (studentId, shuttleId, seatNumber, busDetails) => {
+  const shuttleRef = doc(db, "shuttles", shuttleId);
 
-  const snapshot = await getDocs(q);
-  // Return a simple list of seat numbers (e.g., [12, 14, 25])
-  return snapshot.docs.map(doc => doc.data().seatNumber);
+  await runTransaction(db, async (transaction) => {
+    const shuttleSnap = await transaction.get(shuttleRef);
+
+    if (!shuttleSnap.exists()) throw new Error("Shuttle not found");
+
+    const shuttleData = shuttleSnap.data();
+    const currentBooked = shuttleData.bookedSeats || 0;
+    const total = shuttleData.totalSeats || 50;
+
+    // Check if bus is full
+    if (currentBooked >= total) throw new Error("Bus is full!");
+
+    // 1. UPDATE SHUTTLE COUNT
+    transaction.update(shuttleRef, {
+      bookedSeats: currentBooked + 1
+    });
+
+    // 2. CREATE BOOKING RECORD
+    const newBookingRef = doc(collection(db, "bookings"));
+    transaction.set(newBookingRef, {
+  studentId,
+  shuttleId,
+  seatNumber,
+  gpsId: shuttleData.gpsId || busDetails.gpsId, // 🔥 ADD THIS
+  route: busDetails.route,
+  date: busDetails.date,
+  time: busDetails.time,
+  status: "confirmed",
+  claimed: false,              // 🔥 important default
+  bookedAt: serverTimestamp()
+})
+  });
+};
+
+// 📊 3. SUBSCRIBE TO SEATS (Real-time Layout)
+export const subscribeBookedSeats = (shuttleId, callback) => {
+  if (!shuttleId) return () => {}
+  const q = query(bookingsRef, where("shuttleId", "==", shuttleId), where("status", "==", "confirmed"))
+  return onSnapshot(q, (snapshot) => {
+    const seats = snapshot.docs.map(doc => {
+  const data = doc.data()
+  return {
+    seatNumber: data.seatNumber,
+    claimed: data.claimed === true
+  }
+})
+    callback(seats)
+  })
 }
 
-// 👤 3. GET MY BOOKINGS (For Student Dashboard)
-export const getStudentBookings = async (studentId) => {
-  const q = query(
-    bookingsRef, 
-    where("studentId", "==", studentId)
-  );
-
-  const snapshot = await getDocs(q);
-  return snapshot.docs.map(doc => ({
-    id: doc.id,
-    ...doc.data()
-  }));
-}
-
-// 👮 4. ADMIN: GET ALL BOOKINGS (For your View Bookings page)
+// 🔍 4. GET ALL BOOKINGS (For Admin View)
 export const getAllBookings = async () => {
-  const snapshot = await getDocs(bookingsRef);
+  try {
+    const snapshot = await getDocs(bookingsRef);
+    return snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+  } catch (error) {
+    console.error("Error fetching all bookings:", error);
+    throw error;
+  }
+}
+
+// 👤 5. GET STUDENT SPECIFIC BOOKINGS
+export const getStudentBookings = async (studentId) => {
+  const q = query(bookingsRef, where("studentId", "==", studentId));
+  const snapshot = await getDocs(q);
   return snapshot.docs.map(doc => ({
     id: doc.id,
     ...doc.data()

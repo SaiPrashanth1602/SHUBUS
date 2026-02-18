@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react"
 import { useParams, useNavigate, useLocation } from "react-router-dom"
 import PageWrapper from "../components/layout/PageWrapper"
-import { auth, db } from "../config/firebase" 
-import { collection, query, where, getDocs } from "firebase/firestore" 
-import { bookSeat, getBookedSeats } from "../services/bookingServices"
+import { auth, db } from "../config/firebase"
+import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore"
+import { bookSeat, subscribeBookedSeats } from "../services/bookingServices"
+
 
 // 🚌 SEAT LAYOUT CONSTANT
 const BUS_SEAT_LAYOUT = [
@@ -57,7 +58,7 @@ function SeatLayout() {
   const { busId } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-
+const [busDetails, setBusDetails] = useState(null)
   // 🆕 GET TIME & ROUTE FROM PREVIOUS PAGE
   const { route: routeName = "Bus Route", time: busTime } = location.state || {}
 
@@ -68,112 +69,96 @@ function SeatLayout() {
 
   // 1. Load Real Booked Seats from Firebase
   useEffect(() => {
-    const fetchSeats = async () => {
-      try {
-        const takenSeats = await getBookedSeats(busId)
-        setBookedSeats(takenSeats)
-      } catch (error) {
-        console.error("Error loading seats:", error)
-      }
-    }
-    fetchSeats()
+    const unsubscribe = subscribeBookedSeats(busId, (data) => {
+      setBookedSeats(data)
+    })
+
+    return () => unsubscribe()
   }, [busId])
+  const totalSeats = busDetails?.totalSeats || 50
+const bookedCount = bookedSeats.length
+const remainingSeats = totalSeats - bookedCount
+
+
+useEffect(() => {
+  const fetchBusFromShuttle = async () => {
+    try {
+      // 1️⃣ Get shuttle
+      const shuttleSnap = await getDoc(doc(db, "shuttles", busId))
+
+      if (!shuttleSnap.exists()) {
+        console.log("Shuttle not found")
+        return
+      }
+
+      const shuttleData = shuttleSnap.data()
+      const realBusId = shuttleData.busId
+
+      if (!realBusId) {
+        console.log("No bus linked to shuttle")
+        return
+      }
+
+      // 2️⃣ Get bus
+      const busSnap = await getDoc(doc(db, "buses", realBusId))
+
+      if (busSnap.exists()) {
+        setBusDetails(busSnap.data())
+      } else {
+        console.log("Bus not found")
+      }
+
+    } catch (err) {
+      console.error("Error fetching bus details:", err)
+    }
+  }
+
+  if (busId) fetchBusFromShuttle()
+}, [busId])
+
+
 
   // Handle clicking a seat
   const handleSeatClick = (seatId) => {
-    if (bookedSeats.includes(seatId)) return
+    const booking = bookedSeats.find(b => b.seatNumber === seatId)
+    if (booking) return
     setSelectedSeat(seatId === selectedSeat ? null : seatId)
   }
 
   // 2. Confirm & Save to Firebase (ROBUST VERSION)
   const handleConfirm = async () => {
-    if (!selectedSeat) {
-      alert("Please select a seat")
-      return
-    }
-
+    if (!selectedSeat) return alert("Please select a seat")
     const user = auth.currentUser
-    if (!user) {
-      alert("You must be logged in to book a seat!")
-      return
-    }
+    if (!user) return alert("Please login")
 
     setLoading(true)
-
-    // ============================================================
-    // 🛡️ DOUBLE BOOKING CHECK
-    // ============================================================
     try {
-      console.log("🕵️ Checking for existing bookings...")
-
-      // 1. Fetch ALL bookings for this student
-      const q = query(
-        collection(db, "bookings"),
-        where("studentId", "==", user.uid)
-      )
-
+      // 🛡️ DOUBLE BOOKING CHECK (Simplified for clarity)
+      const q = query(collection(db, "bookings"), where("studentId", "==", user.uid))
       const snapshot = await getDocs(q)
-      const myBookings = snapshot.docs.map(doc => doc.data())
+      const today = new Date().toISOString().split('T')[0]; // Simple comparison
 
-      // 2. Manually check if any booking belongs to TODAY
-      const today = new Date()
-
-      const hasBookingToday = myBookings.some(ticket => {
-        if (!ticket.bookedAt) return false
-        const ticketDate = ticket.bookedAt.toDate ? ticket.bookedAt.toDate() : new Date(ticket.bookedAt)
-
-        return (
-          ticketDate.getDate() === today.getDate() &&
-          ticketDate.getMonth() === today.getMonth() &&
-          ticketDate.getFullYear() === today.getFullYear()
-        )
-      })
-
+      const hasBookingToday = snapshot.docs.some(doc => doc.data().date === today)
       if (hasBookingToday) {
-        console.log("⛔ Blocked: User already has a booking today.")
-        alert("⛔ YOU HAVE ALREADY BOOKED A SEAT TODAY!\n\nYou can only book 1 shuttle per day.")
-        
-        // 🔴 BLOCKED -> Send to "MY BOOKINGS" (To see existing ticket)
-        navigate("/student/my-bookings") 
-        return 
+        alert("⛔ YOU HAVE ALREADY BOOKED A SEAT TODAY!")
+        navigate("/student/my-bookings")
+        return
       }
 
-    } catch (checkErr) {
-      console.error("❌ Error checking bookings:", checkErr)
-      alert("System error. Please check console.")
-      setLoading(false)
-      return
-    }
-    // ============================================================
+      const offset = 5.5 * 60 * 60 * 1000;
+      const istDate = new Date(Date.now() + offset).toISOString().split('T')[0];
 
-    try {
-      const studentId = user.uid
-      
-      // 🗓️ 🇮🇳 FORCE IST DATE (EXACT MATCH with StudentBooking.jsx)
-      const offset = 5.5 * 60 * 60 * 1000; // IST Offset
-      const now = new Date();
-      const istDate = new Date(now.getTime() + offset).toISOString().split('T')[0];
-
-      // 👇 SAVING DATE AND TIME HERE
-      await bookSeat(studentId, busId, selectedSeat, {
+      await bookSeat(user.uid, busId, selectedSeat, {
         route: routeName,
-        date: istDate, // "2026-02-14" (NOW GUARANTEED MATCH)
-        time: busTime  // "1:20 PM"
+        date: istDate,
+        time: busTime
       })
 
-      // 🟢 SUCCESS -> Send to "BOOKING VIEW"
-      navigate("/student/booking", {
-        state: {
-            busId,
-            seatNumber: selectedSeat,
-            status: "confirmed",
-            route: routeName,
-            time: busTime
-        }
-      })
+      // We navigate to my-bookings because the Transaction doesn't easily return the new Doc ID
+      // and StudentBooking will show the latest ticket at the top anyway.
+      navigate("/student/my-bookings")
 
     } catch (error) {
-      console.error("Booking Error:", error)
       alert("Booking Failed: " + error.message)
     } finally {
       setLoading(false)
@@ -183,10 +168,22 @@ function SeatLayout() {
   // --- 🎨 UI SECTION ---
   return (
     <PageWrapper role="student">
-      <h1 className="text-xl md:text-2xl font-bold text-vitblue mb-2 text-center">Select Your Seat</h1>
-      <p className="text-gray-600 mb-8 text-center">
-        Bus ID: <span className="font-semibold">{busId}</span> <span className="text-sm text-gray-400">({routeName})</span>
-      </p>
+      <div className="text-center mb-4">
+  <h1 className="text-xl md:text-2xl font-bold text-vitblue">
+    Bus No: <span className="text-gray-800">{busDetails?.busNo || "Loading..."}</span>
+  </h1>
+
+  <h2 className="text-md md:text-lg font-semibold text-gray-700 mt-1">
+    Shuttle Route: <span className="text-gray-600">{routeName}</span>
+  </h2>
+</div>
+
+<p className="text-gray-600 mb-6 text-center text-sm">
+  <span className="font-semibold">{bookedCount}</span> / {totalSeats} seats booked •{" "}
+  <span className="font-semibold text-green-600">{remainingSeats}</span> remaining
+</p>
+
+
 
       {/* HORIZONTAL SCROLL WRAPPER */}
       <div className="w-full overflow-x-hidden pb-12 px-2 flex justify-center relative">
@@ -242,14 +239,26 @@ function SeatLayout() {
                   style={{ gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr" }}
                 >
                   {row.map((seat, seatIndex) => {
-                    if (seat === null) return <div key={`aisle-${rowIndex}`} />
+                    if (seat === null) return <div key={`aisle-${rowIndex}-${seatIndex}`} />
 
-                    const isBooked = bookedSeats.includes(seat)
+                    const booking = bookedSeats.find(b => b.seatNumber === seat)
+                    const isBooked = !!booking
+                    const isClaimed = booking?.claimed
                     const isSelected = selectedSeat === seat
 
-                    let seatStyle = "bg-white text-gray-700 border-b-2 md:border-b-4 border-gray-300 hover:border-vitblue hover:bg-blue-50 shadow-sm"
-                    if (isBooked) seatStyle = "bg-red-50 text-red-300 border-b-2 md:border-b-4 border-red-100 cursor-not-allowed"
-                    if (isSelected) seatStyle = "bg-vitblue text-white border-b-2 md:border-b-4 border-blue-800 shadow-lg transform scale-105"
+                    let seatStyle = "bg-white text-gray-700 border-b-4 border-gray-300 hover:border-vitblue hover:bg-blue-50 shadow-sm"
+
+                    if (isBooked && !isClaimed) {
+                      seatStyle = "bg-red-100 text-red-400 border-b-4 border-red-300 cursor-not-allowed"
+                    }
+
+                    if (isClaimed) {
+                      seatStyle = "bg-red-700 text-white border-b-4 border-red-900 cursor-not-allowed shadow-lg"
+                    }
+
+                    if (isSelected) {
+                      seatStyle = "bg-vitblue text-white border-b-4 border-blue-800 shadow-lg transform scale-105"
+                    }
 
                     return (
                       <button
@@ -289,6 +298,11 @@ function SeatLayout() {
         <div className="flex items-center gap-2"><div className="w-5 h-5 bg-white border-b-4 border-gray-300 rounded"></div> Available</div>
         <div className="flex items-center gap-2"><div className="w-5 h-5 bg-vitblue border-b-4 border-blue-800 rounded"></div> Selected</div>
         <div className="flex items-center gap-2"><div className="w-5 h-5 bg-red-50 border-b-4 border-red-100 rounded text-red-300 text-xs flex items-center justify-center font-bold">X</div> Booked</div>
+        
+          <div className="w-5 h-5 bg-red-600 border-b-4 border-red-800 rounded"></div>Claimed
+          
+        
+
       </div>
 
       {/* Mobile Confirm Bar */}

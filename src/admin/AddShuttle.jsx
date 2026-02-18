@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react"
 import PageWrapper from "../components/layout/PageWrapper"
 import { getAllBuses } from "../services/busServices"
-import { addShuttle, getShuttlesByDate } from "../services/shuttleServices"
-import { Bus, MapPin, User, Phone, Hash, Layers } from "lucide-react"
+import { addShuttle, subscribeShuttlesByDate } from "../services/shuttleServices"
+import { Bus, MapPin, User, Phone, Hash } from "lucide-react"
 import Modal from "../components/ui/Modal"
 
 
@@ -19,40 +19,30 @@ function AddShuttle() {
   const [time, setTime] = useState("")
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
-  const KV = ({ label, value, icon }) => (
-    <div className="flex justify-between items-center text-sm">
-      <div className="flex items-center gap-2 text-gray-500">
-        {icon}
-        {label}
-      </div>
-      <span className="font-semibold">{value}</span>
-    </div>
-  )
+  
 
 
 
   const today = new Date().toISOString().split("T")[0]
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [busData, shuttleData] = await Promise.all([
-          getAllBuses(),
-          getShuttlesByDate(today)
-        ])
-        const activeBuses = busData.filter(b => b.active !== false)
-        const map = {}
-        activeBuses.forEach(b => (map[b.id] = b))
+useEffect(() => {
+  const fetchBuses = async () => {
+    const busData = await getAllBuses()
+    const map = {}
+    busData.forEach(b => (map[b.id] = b))
+    setBusMap(map)
+    setBuses(busData)
+    setLoading(false)   // 🔥 ADD THIS
+  }
 
-        setBusMap(map)
-        setBuses(activeBuses)
-        setShuttles(shuttleData)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchData()
-  }, [today])
+  fetchBuses()
+
+  const unsubscribe = subscribeShuttlesByDate(today, (data) => {
+    setShuttles(data)
+  })
+
+  return () => unsubscribe()
+}, [today])
 
   const usedBusIds = shuttles.map(s => s.busId)
   const availableBuses = buses.filter(b => !usedBusIds.includes(b.id))
@@ -78,43 +68,41 @@ function AddShuttle() {
 
 
 
-  const handleAddShuttle = async () => {
-    if (!selectedBus || !route || !time) {
-      alert("Please fill all fields");
-      return;
-    }
+// Inside AddShuttle.js
 
-    if (loading) return;
+const handleAddShuttle = async () => {
+  if (!selectedBus || !route || !time) {
+    alert("Please fill all fields");
+    return;
+  }
 
-    try {
-      setLoading(true);
+  if (loading) return;
 
-      const newShuttle = {
-        busId: selectedBus.id,
-        route,
-        time,
-        date: today,
-        active: true
-      };
+  try {
+    setLoading(true);
 
-      const docRef = await addShuttle(newShuttle);
+    // Pass the gpsId along with the other data
+    await addShuttle({
+      busId: selectedBus.id,
+      gpsId: selectedBus.gpsId, // <--- Add this line
+      route,
+      time,
+      date: today,
+      busNo: selectedBus.busNo // Useful for showing on the claim page too!
+    });
 
-      // ✅ IMPROVEMENT: Update local state immediately so the 
-      // bus disappears from "Available" without a second network hit
-      setShuttles(prev => [...prev, { id: docRef.id, ...newShuttle }]);
+    setSelectedBus(null);
+    setRoute("");
+    setTime("");
+    alert("Shuttle Added!");
 
-      setSelectedBus(null);
-      setRoute("");
-      setTime("");
-      alert("Shuttle Added!");
-
-    } catch (error) {
-      console.error("Error adding shuttle:", error);
-      alert("Failed to add shuttle");
-    } finally {
-      setLoading(false);
-    }
-  };
+  } catch (error) {
+    console.error("Error adding shuttle:", error);
+    alert("Failed to add shuttle");
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <PageWrapper role="admin">
