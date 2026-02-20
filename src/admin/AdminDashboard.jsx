@@ -7,10 +7,22 @@ import {
 import { getAllBuses } from "../services/busServices"
 import { useNavigate } from "react-router-dom"
 import { subscribeShuttlesByDate } from "../services/shuttleServices"
-import { doc, deleteDoc } from "firebase/firestore"; 
-import { db } from "../config/firebase";
-import { Bus, MapPin, User, Phone, Hash, Layers } from "lucide-react"
+import { doc, getDoc } from "firebase/firestore"
+import { onAuthStateChanged } from "firebase/auth"
+import { db, auth } from "../config/firebase"
+import { Bus, MapPin, User, Phone, Hash, Layers, CalendarClock } from "lucide-react"
 import Modal from "../components/ui/Modal"
+
+// ✨ NEW: Smart date helper — after 3 PM, flip to tomorrow
+const getActiveDate = () => {
+  const now = new Date()
+  if (now.getHours() >= 15) { // Remember to change back to 15 when done testing!
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    return tomorrow.toISOString().split("T")[0]
+  }
+  return now.toISOString().split("T")[0]
+}
 
 function AdminDashboard() {
   const [selectedBus, setSelectedBus] = useState(null)
@@ -22,6 +34,14 @@ function AdminDashboard() {
   const [busMap, setBusMap] = useState({})
   const [loading, setLoading] = useState(true)
   const [editingShuttle, setEditingShuttle] = useState(null)
+
+  // Admin Profile State for Greeting
+  const [userData, setUserData] = useState(null)
+  const [greeting, setGreeting] = useState("")
+
+  // Smart active date for queries
+  const activeDate = getActiveDate()
+  const isSchedulingForTomorrow = new Date().getHours() >= 15 // Remember to change to 15!
 
   const availableRoutes = Array.from(new Set(shuttles.map(s => s.route)))
   const availableTimes = Array.from(new Set(shuttles.map(s => s.time)))
@@ -39,36 +59,54 @@ function AdminDashboard() {
     </div>
   )
 
-  const today = new Date().toISOString().split("T")[0]
-  const displayDate = new Date().toLocaleDateString("en-IN", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric"
+  // ✨ FIX: Top greeting always shows the actual CURRENT date normally
+  const currentDateDisplay = new Date().toLocaleDateString('en-IN', { 
+    weekday: 'long', 
+    day: 'numeric', 
+    month: 'long' 
   })
 
   useEffect(() => {
     let unsubscribe = () => {}
 
+    // Set Time-based greeting
+    const hour = new Date().getHours()
+    if (hour < 12) setGreeting("Good Morning")
+    else if (hour < 18) setGreeting("Good Afternoon")
+    else setGreeting("Good Evening")
+
+    // Fetch Admin User Data
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const userDocRef = doc(db, "users", user.uid)
+        const userDocSnap = await getDoc(userDocRef)
+        if (userDocSnap.exists()) {
+          setUserData(userDocSnap.data())
+        }
+      } else {
+        setUserData(null)
+      }
+    })
+
     const fetchBuses = async () => {
       const busData = await getAllBuses()
       const map = {}
-      busData.forEach(bus => {
-        map[bus.id] = bus
-      })
+      busData.forEach(bus => { map[bus.id] = bus })
       setBusMap(map)
     }
 
     fetchBuses()
 
-    unsubscribe = subscribeShuttlesByDate(today, data => {
+    unsubscribe = subscribeShuttlesByDate(activeDate, data => {
       setShuttles(data)
       setLoading(false)
     })
 
-    return () => unsubscribe()
-  }, [today])
-
+    return () => {
+      unsubscribe()
+      unsubscribeAuth()
+    }
+  }, [activeDate])
 
   // Overview Metrics
   const totalShuttles = shuttles.length
@@ -102,38 +140,50 @@ function AdminDashboard() {
 
   return (
     <PageWrapper role="admin">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-        <h1 className="text-2xl md:text-3xl font-bold text-vitblue">Admin Dashboard</h1>
+
+      {/* ================= HEADER & GREETING ================= */}
+      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4 mb-6">
+        <div>
+          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
+            {userData ? `${greeting}, ${userData.name.split(' ')[0]} 👋` : "Admin Dashboard"}
+          </h1>
+          <p className="text-gray-500 mt-1 font-medium text-sm">
+            {currentDateDisplay}
+          </p>
+        </div>
+
         <button
           onClick={() => navigate("/admin/add-shuttle")}
-          className="bg-vitblue text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-800 transition-all text-center"
+          className="bg-vitblue text-white px-6 py-3 rounded-xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-800 transition-all text-center whitespace-nowrap"
         >
           + Add Shuttle
         </button>
       </div>
 
       {/* ================= OVERVIEW METRICS ================= */}
-      {/* ✨ FIX: Changed grid-cols-1 to grid-cols-2 for mobile */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-8">
         <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider">Today</p>
-          <p className="text-sm md:text-base font-semibold text-gray-800 mt-1">{displayDate}</p>
+          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider whitespace-nowrap">Total Buses</p>
+          <p className="text-2xl md:text-3xl font-bold text-gray-800 mt-1">{Object.keys(busMap).length}</p>
         </div>
 
         <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider">Running Shuttles</p>
+          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+            {isSchedulingForTomorrow ? "Tomorrow's Shuttles" : "Running Shuttles"}
+          </p>
           <p className="text-2xl md:text-3xl font-bold text-vitblue mt-1">{loading ? "-" : totalShuttles}</p>
         </div>
 
         <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider">Bus Types</p>
-          <p className="text-sm md:text-lg font-semibold text-gray-800 mt-1">
-            <span className="text-blue-600">{acCount} AC</span> • {nonAcCount} Non
-          </p>
+          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider whitespace-nowrap">Bus Types</p>
+          <div className="text-xs md:text-sm font-bold text-gray-800 mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="text-blue-700 bg-blue-100 px-2 py-0.5 rounded whitespace-nowrap">{acCount} AC</span>
+            <span className="text-orange-700 bg-orange-100 px-2 py-0.5 rounded whitespace-nowrap">{nonAcCount} NON-AC</span>
+          </div>
         </div>
 
         <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
-          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider">Active Routes</p>
+          <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider whitespace-nowrap">Active Routes</p>
           <p className="text-2xl md:text-3xl font-bold text-gray-800 mt-1">{uniqueRoutes}</p>
         </div>
       </div>
@@ -146,8 +196,7 @@ function AdminDashboard() {
             <select
               value={routeFilter}
               onChange={e => setRouteFilter(e.target.value)}
-              // ✨ FIX: Added 'w-full' here so it doesn't overflow
-              className="w-full p-3 bg-gray-50 border rounded-lg outline-none focus:ring-2 focus:ring-vitblue"
+              className="w-full p-3 bg-gray-50 border rounded-lg outline-none focus:ring-2 focus:ring-vitblue font-semibold text-gray-700"
             >
               <option value="ALL">All Routes</option>
               {availableRoutes.map(r => <option key={r} value={r}>{r}</option>)}
@@ -156,8 +205,7 @@ function AdminDashboard() {
             <select
               value={timeFilter}
               onChange={e => setTimeFilter(e.target.value)}
-              // ✨ FIX: Added 'w-full' here too
-              className="w-full p-3 bg-gray-50 border rounded-lg outline-none focus:ring-2 focus:ring-vitblue"
+              className="w-full p-3 bg-gray-50 border rounded-lg outline-none focus:ring-2 focus:ring-vitblue font-semibold text-gray-700"
             >
               <option value="ALL">All Times</option>
               {availableTimes.map(t => <option key={t} value={t}>{t}</option>)}
@@ -168,26 +216,39 @@ function AdminDashboard() {
 
       {/* ================= TABLE ================= */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 border-b border-gray-50">
-          <h2 className="font-bold text-gray-700">Today's Schedule</h2>
+        <div className="p-4 border-b border-gray-50 flex flex-wrap items-center gap-3">
+          <h2 className="font-bold text-gray-700 flex items-center gap-2">
+            Schedule
+            {/* ✨ FIX: Small, clean amber badge next to title instead of huge banner */}
+            {isSchedulingForTomorrow && (
+              <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-black flex items-center gap-1 shadow-sm">
+                <CalendarClock size={12} />
+                Planning for Tomorrow
+              </span>
+            )}
+          </h2>
         </div>
-        
+
         {loading ? (
           <div className="p-10 text-center text-gray-400">Loading shuttles...</div>
         ) : filteredShuttles.length === 0 ? (
-          <div className="p-10 text-center text-gray-400">No matching shuttles found.</div>
+          <div className="p-10 text-center text-gray-400">
+            {isSchedulingForTomorrow
+              ? "No shuttles scheduled for tomorrow yet. Click '+ Add Shuttle' to assign one!"
+              : "No matching shuttles found."
+            }
+          </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse min-w-[600px]">
+            <table className="w-full text-left border-collapse min-w-[700px]">
               <thead className="bg-gray-50 text-gray-500 text-xs uppercase font-bold tracking-widest">
-                {/* ✨ FIX: Reordered Columns: Bus -> Route -> Time -> Plate */}
                 <tr>
-                  <th className="p-4">Bus</th>
-                  <th className="p-4">Route</th>
-                  <th className="p-4">Time</th>
-                  <th className="p-4">Plate</th>
-                  <th className="p-4 hidden lg:table-cell">Type</th>
-                  <th className="p-4 text-center">Actions</th>
+                  <th className="p-4 whitespace-nowrap">Bus</th>
+                  <th className="p-4 whitespace-nowrap">Route</th>
+                  <th className="p-4 whitespace-nowrap">Time</th>
+                  <th className="p-4 whitespace-nowrap">Plate</th>
+                  <th className="p-4 whitespace-nowrap">Type</th>
+                  <th className="p-4 text-center whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -196,45 +257,38 @@ function AdminDashboard() {
                   if (!bus) return null
                   return (
                     <tr key={shuttle.id} className="hover:bg-blue-50/50 transition-colors">
-                      {/* 1. Bus */}
-                      <td className="p-4 font-bold text-vitblue">{bus.busNo}</td>
-                      
-                      {/* 2. Route (Swapped) */}
-                      <td className="p-4 font-medium">{shuttle.route}</td>
-                      
-                      {/* 3. Time (Swapped) */}
-                      <td className="p-4">
+                      <td className="p-4 font-bold text-vitblue whitespace-nowrap">{bus.busNo}</td>
+                      <td className="p-4 font-medium whitespace-nowrap">{shuttle.route}</td>
+                      <td className="p-4 whitespace-nowrap">
                         <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">
                           {shuttle.time}
                         </span>
                       </td>
-
-                      {/* 4. Plate (Swapped) */}
-                      <td className="p-4 text-sm text-gray-600 font-mono">{bus.numberPlate}</td>
-                      
-                      <td className="p-4 hidden lg:table-cell text-gray-500 text-sm">{bus.busType}</td>
-                      <td className="p-4">
+                      <td className="p-4 text-sm text-gray-600 font-mono whitespace-nowrap">{bus.numberPlate}</td>
+                      <td className="p-4 text-gray-500 text-sm font-semibold whitespace-nowrap">
+                        <span className={`px-2 py-1 rounded-md text-[10px] uppercase font-bold tracking-wide ${
+                          bus.busType === "AC" ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700"
+                        }`}>
+                          {bus.busType}
+                        </span>
+                      </td>
+                      <td className="p-4 whitespace-nowrap">
                         <div className="flex justify-center gap-2">
                           <button
                             onClick={() => setSelectedBus(bus)}
-                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-                            title="View Bus"
+                            className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg font-semibold text-sm"
                           >
                             View
                           </button>
-
                           <button
                             onClick={() => setEditingShuttle(shuttle)}
-                            className="p-2 text-blue-600 hover:bg-blue-100 rounded-lg"
-                            title="Edit"
+                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg font-semibold text-sm"
                           >
                             Edit
                           </button>
-
                           <button
                             onClick={() => handleCancelShuttle(shuttle.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
-                            title="Cancel"
+                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg font-semibold text-sm"
                           >
                             Cancel
                           </button>
@@ -253,8 +307,6 @@ function AdminDashboard() {
       {selectedBus && (
         <Modal title="Bus Details" onClose={() => setSelectedBus(null)}>
           <div className="space-y-6">
-            
-            {/* VEHICLE INFO SECTION */}
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">
                 Vehicle Specifications
@@ -262,7 +314,6 @@ function AdminDashboard() {
               <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-3">
                 <KV icon={<Hash size={16} className="text-blue-500" />} label="Bus Number" value={selectedBus.busNo} />
                 <KV icon={<Hash size={16} className="text-slate-400" />} label="Number Plate" value={selectedBus.numberPlate} />
-
                 <div className="flex justify-between items-center py-1">
                   <div className="flex items-center gap-2 text-slate-500">
                     <Bus size={16} className="text-slate-400" />
@@ -272,12 +323,10 @@ function AdminDashboard() {
                     {selectedBus.busType}
                   </span>
                 </div>
-
                 <KV icon={<Layers size={16} className="text-slate-400" />} label="Seat Layout" value={selectedBus.seatLayoutId} />
               </div>
             </div>
 
-            {/* ASSIGNMENT INFO SECTION */}
             <div>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-3 ml-1">
                 Route & Personnel
@@ -289,8 +338,7 @@ function AdminDashboard() {
               </div>
             </div>
 
-            {/* FOOTER ACTION */}
-            <button 
+            <button
               onClick={() => setSelectedBus(null)}
               className="w-full py-3 text-slate-500 font-semibold text-sm hover:bg-slate-50 rounded-xl transition-colors"
             >
@@ -311,7 +359,7 @@ function AdminDashboard() {
               <div>
                 <label className="text-xs font-bold text-gray-400 uppercase">Route</label>
                 <select
-                  className="w-full p-3 border rounded-xl mt-1 bg-gray-50 focus:ring-2 focus:ring-vitblue outline-none"
+                  className="w-full p-3 border rounded-xl mt-1 bg-gray-50 focus:ring-2 focus:ring-vitblue outline-none font-semibold text-gray-700"
                   value={editingShuttle.route}
                   onChange={e => setEditingShuttle({ ...editingShuttle, route: e.target.value })}
                 >
@@ -325,7 +373,7 @@ function AdminDashboard() {
               <div>
                 <label className="text-xs font-bold text-gray-400 uppercase">Time</label>
                 <select
-                  className="w-full p-3 border rounded-xl mt-1 bg-gray-50 focus:ring-2 focus:ring-vitblue outline-none"
+                  className="w-full p-3 border rounded-xl mt-1 bg-gray-50 focus:ring-2 focus:ring-vitblue outline-none font-semibold text-gray-700"
                   value={editingShuttle.time}
                   onChange={e => setEditingShuttle({ ...editingShuttle, time: e.target.value })}
                 >
