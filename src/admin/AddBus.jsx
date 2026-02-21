@@ -9,28 +9,31 @@ function AddBus() {
   const [busNo, setBusNo] = useState("")
   const [numberPlate, setNumberPlate] = useState("")
   const [busType, setBusType] = useState("Non-AC")
+  const [totalSeats, setTotalSeats] = useState("50") // ✅ NEW: Default to 50
   const [driverName, setDriverName] = useState("")
   const [driverPhone, setDriverPhone] = useState("")
   const [loading, setLoading] = useState(false)
-const [gpsId, setGpsId] = useState("")
+  const [gpsId, setGpsId] = useState("")
+
   const handleSubmit = async () => {
-    if (!busNo || !numberPlate || !gpsId) {
-  alert("Bus No, Number Plate and GPS ID are required")
-  return
-}
+    if (!busNo || !numberPlate || !gpsId || !totalSeats) {
+      alert("Bus No, Plate, GPS ID, and Capacity are required")
+      return
+    }
     setLoading(true)
     try {
       await addBus({
-  busNo,
-  gpsId: gpsId.trim(),  // 🔥 add this
-  numberPlate: numberPlate.replace(/[^A-Z0-9]/gi, "").toUpperCase(),
-  busType,
-  morningRoute,
-  driver: {
-    name: driverName || "Not assigned",
-    phone: driverPhone || ""
-  }
-})
+        busNo,
+        gpsId: gpsId.trim(),
+        numberPlate: numberPlate.replace(/[^A-Z0-9]/gi, "").toUpperCase(),
+        busType,
+        totalSeats: parseInt(totalSeats), // ✅ NEW: Save to DB
+        morningRoute,
+        driver: {
+          name: driverName || "Not assigned",
+          phone: driverPhone || ""
+        }
+      })
       navigate("/admin/buses")
     } catch (err) {
       console.error("Failed to add bus", err)
@@ -86,7 +89,17 @@ const [gpsId, setGpsId] = useState("")
               </select>
             </div>
 
-
+            {/* ✅ NEW: Total Seats Input */}
+            <div className="space-y-1">
+              <label className="text-sm font-semibold text-gray-600">Total Seats (Capacity)</label>
+              <input
+                type="number"
+                placeholder="50"
+                value={totalSeats}
+                onChange={e => setTotalSeats(e.target.value)}
+                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-vitblue outline-none"
+              />
+            </div>
           </div>
 
           <hr className="my-2 border-gray-100" />
@@ -125,18 +138,18 @@ const [gpsId, setGpsId] = useState("")
             </div>
 
             <div className="space-y-1">
-  <label className="text-sm font-semibold text-gray-600">GPS Device ID</label>
-  <input
-    type="text"
-    placeholder="e.g. bus1"
-    value={gpsId}
-    onChange={e => setGpsId(e.target.value)}
-    className="w-full p-3 border rounded-lg"
-  />
-</div>
+              <label className="text-sm font-semibold text-gray-600">GPS Device ID</label>
+              <input
+                type="text"
+                placeholder="e.g. bus1"
+                value={gpsId}
+                onChange={e => setGpsId(e.target.value)}
+                className="w-full p-3 border rounded-lg"
+              />
+            </div>
           </div>
 
-          {/* Action Buttons: Stack on mobile, side-by-side on desktop */}
+          {/* Action Buttons */}
           <div className="flex flex-col-reverse md:flex-row gap-3 pt-4">
             <button
               onClick={() => navigate("/admin/buses")}
