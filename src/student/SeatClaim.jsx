@@ -84,7 +84,9 @@ function SeatClaim() {
       }
 
       const distance = getDistance(studentLat, studentLng, busLat, busLng)
-
+      console.log("📍 Student:", studentLat, studentLng);
+      console.log("🚌 Bus:", busLat, busLng);
+      console.log("📏 Distance:", distance, "meters");
       if (distance > MAX_DISTANCE) {
         throw new Error(
           `You are too far from the bus (${Math.round(distance)}m away)`
@@ -93,12 +95,12 @@ function SeatClaim() {
 
       await claimSeat(bookingId, user.uid)
 
-setSuccess(true)
+      setSuccess(true)
 
-// wait 1.5 seconds to show animation
-setTimeout(() => {
-  navigate("/student/my-bookings")
-}, 1500)
+      // wait 1.5 seconds to show animation
+      setTimeout(() => {
+        navigate("/student/my-bookings")
+      }, 1500)
 
 
     } catch (e) {
@@ -112,54 +114,54 @@ setTimeout(() => {
 
 
   return (
-    
+
     <PageWrapper role="student">
       {(loading || success) && (
-  <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 transition-opacity duration-300">
-    <div className="bg-white px-10 py-8 rounded-2xl shadow-2xl text-center animate-fadeIn">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 transition-opacity duration-300">
+          <div className="bg-white px-10 py-8 rounded-2xl shadow-2xl text-center animate-fadeIn">
 
-      {!success && (
-        <>
-          <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="font-semibold text-gray-700">
-            Verifying your location...
-          </p>
-        </>
-      )}
+            {!success && (
+              <>
+                <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                <p className="font-semibold text-gray-700">
+                  Verifying your location...
+                </p>
+              </>
+            )}
 
-      {success && (
-        <>
-          <div className="w-16 h-16 mx-auto mb-4 relative">
-            <div className="absolute inset-0 bg-green-100 rounded-full animate-ping"></div>
-            <div className="relative w-16 h-16 bg-green-600 rounded-full flex items-center justify-center text-white text-3xl font-bold animate-scaleIn">
-              ✓
-            </div>
+            {success && (
+              <>
+                <div className="w-16 h-16 mx-auto mb-4 relative">
+                  <div className="absolute inset-0 bg-green-100 rounded-full animate-ping"></div>
+                  <div className="relative w-16 h-16 bg-green-600 rounded-full flex items-center justify-center text-white text-3xl font-bold animate-scaleIn">
+                    ✓
+                  </div>
+                </div>
+                <p className="font-semibold text-green-700 text-lg">
+                  Seat Claimed!
+                </p>
+              </>
+            )}
+
           </div>
-          <p className="font-semibold text-green-700 text-lg">
-            Seat Claimed!
-          </p>
-        </>
+        </div>
       )}
-
-    </div>
-  </div>
-)}
       <div className="max-w-md mx-auto bg-white p-6 rounded-xl shadow">
         <h1 className="text-xl font-bold mb-4 text-green-600">
           Claim Your Seat
         </h1>
 
         {busLocation ? (
-  <div className="flex items-center gap-2 text-sm font-semibold text-green-600">
-    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-    Live Bus GPS Connected
-  </div>
-) : (
-  <div className="flex items-center gap-2 text-sm text-gray-400 animate-pulse">
-    <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
-    Connecting to Bus GPS...
-  </div>
-)}
+          <div className="flex items-center gap-2 text-sm font-semibold text-green-600">
+            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+            Live Bus GPS Connected
+          </div>
+        ) : (
+          <div className="flex items-center gap-2 text-sm text-gray-400 animate-pulse">
+            <span className="w-2 h-2 bg-gray-400 rounded-full"></span>
+            Connecting to Bus GPS...
+          </div>
+        )}
 
 
         {error && <p className="text-red-500 mt-3">{error}</p>}

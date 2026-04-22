@@ -58,7 +58,7 @@ function SeatLayout() {
   const { busId } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-const [busDetails, setBusDetails] = useState(null)
+  const [busDetails, setBusDetails] = useState(null)
   // 🆕 GET TIME & ROUTE FROM PREVIOUS PAGE
   const { route: routeName = "Bus Route", time: busTime } = location.state || {}
 
@@ -76,45 +76,45 @@ const [busDetails, setBusDetails] = useState(null)
     return () => unsubscribe()
   }, [busId])
   const totalSeats = busDetails?.totalSeats || 50
-const bookedCount = bookedSeats.length
-const remainingSeats = totalSeats - bookedCount
+  const bookedCount = bookedSeats.length
+  const remainingSeats = totalSeats - bookedCount
 
 
-useEffect(() => {
-  const fetchBusFromShuttle = async () => {
-    try {
-      // 1️⃣ Get shuttle
-      const shuttleSnap = await getDoc(doc(db, "shuttles", busId))
+  useEffect(() => {
+    const fetchBusFromShuttle = async () => {
+      try {
+        // 1️⃣ Get shuttle
+        const shuttleSnap = await getDoc(doc(db, "shuttles", busId))
 
-      if (!shuttleSnap.exists()) {
-        console.log("Shuttle not found")
-        return
+        if (!shuttleSnap.exists()) {
+          console.log("Shuttle not found")
+          return
+        }
+
+        const shuttleData = shuttleSnap.data()
+        const realBusId = shuttleData.busId
+
+        if (!realBusId) {
+          console.log("No bus linked to shuttle")
+          return
+        }
+
+        // 2️⃣ Get bus
+        const busSnap = await getDoc(doc(db, "buses", realBusId))
+
+        if (busSnap.exists()) {
+          setBusDetails(busSnap.data())
+        } else {
+          console.log("Bus not found")
+        }
+
+      } catch (err) {
+        console.error("Error fetching bus details:", err)
       }
-
-      const shuttleData = shuttleSnap.data()
-      const realBusId = shuttleData.busId
-
-      if (!realBusId) {
-        console.log("No bus linked to shuttle")
-        return
-      }
-
-      // 2️⃣ Get bus
-      const busSnap = await getDoc(doc(db, "buses", realBusId))
-
-      if (busSnap.exists()) {
-        setBusDetails(busSnap.data())
-      } else {
-        console.log("Bus not found")
-      }
-
-    } catch (err) {
-      console.error("Error fetching bus details:", err)
     }
-  }
 
-  if (busId) fetchBusFromShuttle()
-}, [busId])
+    if (busId) fetchBusFromShuttle()
+  }, [busId])
 
 
 
@@ -128,34 +128,48 @@ useEffect(() => {
   // 2. Confirm & Save to Firebase (ROBUST VERSION)
   const handleConfirm = async () => {
     if (!selectedSeat) return alert("Please select a seat")
+
     const user = auth.currentUser
     if (!user) return alert("Please login")
 
     setLoading(true)
-    try {
-      // 🛡️ DOUBLE BOOKING CHECK (Simplified for clarity)
-      const q = query(collection(db, "bookings"), where("studentId", "==", user.uid))
-      const snapshot = await getDocs(q)
-      const today = new Date().toISOString().split('T')[0]; // Simple comparison
 
-      const hasBookingToday = snapshot.docs.some(doc => doc.data().date === today)
-      if (hasBookingToday) {
-        alert("⛔ YOU HAVE ALREADY BOOKED A SEAT TODAY!")
+    try {
+      // ✅ SAME DATE LOGIC EVERYWHERE
+      const getActiveDate = () => {
+        const now = new Date()
+        if (now.getHours() >= 15) {
+          const tomorrow = new Date(now)
+          tomorrow.setDate(tomorrow.getDate() + 1)
+          return tomorrow.toISOString().split("T")[0]
+        }
+        return now.toISOString().split("T")[0]
+      }
+
+      const activeDate = getActiveDate()
+
+      // ✅ CHECK EXISTING BOOKING
+      const q = query(
+        collection(db, "bookings"),
+        where("studentId", "==", user.uid),
+        where("date", "==", activeDate)
+      )
+
+      const snapshot = await getDocs(q)
+
+      if (!snapshot.empty) {
+        alert("⛔ YOU HAVE ALREADY BOOKED A SEAT!")
         navigate("/student/my-bookings")
         return
       }
 
-      const offset = 5.5 * 60 * 60 * 1000;
-      const istDate = new Date(Date.now() + offset).toISOString().split('T')[0];
-
+      // ✅ BOOK SEAT
       await bookSeat(user.uid, busId, selectedSeat, {
         route: routeName,
-        date: istDate,
+        date: activeDate,
         time: busTime
       })
 
-      // We navigate to my-bookings because the Transaction doesn't easily return the new Doc ID
-      // and StudentBooking will show the latest ticket at the top anyway.
       navigate("/student/my-bookings")
 
     } catch (error) {
@@ -169,19 +183,19 @@ useEffect(() => {
   return (
     <PageWrapper role="student">
       <div className="text-center mb-4">
-  <h1 className="text-xl md:text-2xl font-bold text-vitblue">
-    Bus No: <span className="text-gray-800">{busDetails?.busNo || "Loading..."}</span>
-  </h1>
+        <h1 className="text-xl md:text-2xl font-bold text-vitblue">
+          Bus No: <span className="text-gray-800">{busDetails?.busNo || "Loading..."}</span>
+        </h1>
 
-  <h2 className="text-md md:text-lg font-semibold text-gray-700 mt-1">
-    Shuttle Route: <span className="text-gray-600">{routeName}</span>
-  </h2>
-</div>
+        <h2 className="text-md md:text-lg font-semibold text-gray-700 mt-1">
+          Shuttle Route: <span className="text-gray-600">{routeName}</span>
+        </h2>
+      </div>
 
-<p className="text-gray-600 mb-6 text-center text-sm">
-  <span className="font-semibold">{bookedCount}</span> / {totalSeats} seats booked •{" "}
-  <span className="font-semibold text-green-600">{remainingSeats}</span> remaining
-</p>
+      <p className="text-gray-600 mb-6 text-center text-sm">
+        <span className="font-semibold">{bookedCount}</span> / {totalSeats} seats booked •{" "}
+        <span className="font-semibold text-green-600">{remainingSeats}</span> remaining
+      </p>
 
 
 
@@ -298,10 +312,10 @@ useEffect(() => {
         <div className="flex items-center gap-2"><div className="w-5 h-5 bg-white border-b-4 border-gray-300 rounded"></div> Available</div>
         <div className="flex items-center gap-2"><div className="w-5 h-5 bg-vitblue border-b-4 border-blue-800 rounded"></div> Selected</div>
         <div className="flex items-center gap-2"><div className="w-5 h-5 bg-red-50 border-b-4 border-red-100 rounded text-red-300 text-xs flex items-center justify-center font-bold">X</div> Booked</div>
-        
-          <div className="w-5 h-5 bg-red-600 border-b-4 border-red-800 rounded"></div>Claimed
-          
-        
+
+        <div className="w-5 h-5 bg-red-600 border-b-4 border-red-800 rounded"></div>Claimed
+
+
 
       </div>
 

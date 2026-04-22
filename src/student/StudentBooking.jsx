@@ -7,7 +7,15 @@ import { useNavigate } from "react-router-dom";
 import { runTransaction } from "firebase/firestore"
 import ConfirmModal from "../components/ui/ConfirmModal"
 import Toast from "../components/ui/Toast"
-
+const getActiveDate = () => {
+  const now = new Date()
+  if (now.getHours() >= 15) {
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    return tomorrow.toISOString().split("T")[0]
+  }
+  return now.toISOString().split("T")[0]
+}
 // Helper to format timestamps nicely
 const formatDate = (timestamp) => {
   if (!timestamp) return "Date Pending"
@@ -21,25 +29,17 @@ const formatDate = (timestamp) => {
 // ✨ NEW: Helper to check if a specific ticket time has already passed
 const isTicketExpired = (ticketDate, ticketTime) => {
   if (!ticketDate || !ticketTime) return false;
-  
+
   try {
-    const [yearStr, monthStr, dayStr] = ticketDate.split("-");
-    const year = parseInt(yearStr, 10);
-    const month = parseInt(monthStr, 10) - 1; 
-    const day = parseInt(dayStr, 10);
+    const [year, month, day] = ticketDate.split("-").map(Number)
+    const [hours, minutes] = ticketTime.split(":").map(Number)
 
-    const [hoursStr, minutesStr] = ticketTime.split(":");
-    let hours = parseInt(hoursStr, 10);
-    const minutes = parseInt(minutesStr, 10);
+    const departureTime = new Date(year, month - 1, day, hours, minutes)
+    const now = new Date()
 
-    if (hours < 12) hours += 12; // Convert to 24-hour PM time
-
-    const departureTime = new Date(year, month, day, hours, minutes);
-    const now = new Date();
-    
-    return now > departureTime;
+    return now > departureTime
   } catch (error) {
-    return false; // If date parsing fails, default to false so they don't lose the ticket
+    return false
   }
 }
 
@@ -55,9 +55,7 @@ function StudentBooking() {
   const [cancelLoading, setCancelLoading] = useState(false)
 
   // 🇮🇳 FORCE IST DATE (YYYY-MM-DD)
-  const offset = 5.5 * 60 * 60 * 1000; // IST Offset
-  const now = new Date();
-  const todayStr = new Date(now.getTime() + offset).toISOString().split('T')[0];
+  
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -149,7 +147,7 @@ function StudentBooking() {
           {bookings.map((ticket) => {
 
             const isClaimed = ticket.claimed === true;
-            
+
             // ✨ FIX: Smart status check
             // Ticket is "Active" ONLY if the departure time hasn't passed yet
             const isExpired = isTicketExpired(ticket.date, ticket.time);
@@ -205,7 +203,7 @@ function StudentBooking() {
                                 busId: ticket.shuttleId,
                                 seatNumber: ticket.seatNumber,
                                 route: ticket.route,
-                                gpsId: ticket.gpsId,
+                                gpsId: "bus1",
                                 time: ticket.time,
                                 date: ticket.date // Passing this along just in case
                               }
@@ -260,7 +258,7 @@ function StudentBooking() {
           })}
         </div>
       )}
-      
+
       {/* Cancel Confirmation Modal */}
       <ConfirmModal
         open={showCancelModal}

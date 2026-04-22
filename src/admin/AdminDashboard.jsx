@@ -249,7 +249,7 @@ function AdminDashboard() {
                         }`}>{bus.busType}</span>
                       </td>
                       <td className="p-4">
-                        <div className="flex justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex justify-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                           <button onClick={() => setSelectedBus(bus)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg"><Eye size={18} /></button>
                           <button onClick={() => setEditingShuttle(shuttle)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit size={18} /></button>
                           <button onClick={() => handleCancelShuttle(shuttle.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={18} /></button>

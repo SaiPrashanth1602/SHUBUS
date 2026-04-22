@@ -12,8 +12,7 @@ const firebaseConfig = {
   appId: "1:782748859830:web:b7355ada5e6ab7ca6e1517",
 
   // 🔥 IMPORTANT: Add Realtime DB URL
-  databaseURL:
-    "https://shubus-default-rtdb.asia-southeast1.firebasedatabase.app",
+  databaseURL: "https://shubus-default-rtdb.asia-southeast1.firebasedatabase.app",
 };
 
 const app = initializeApp(firebaseConfig);
