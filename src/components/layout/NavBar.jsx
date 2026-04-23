@@ -33,9 +33,11 @@ function NavBar({ role }) {
   const navItems = role === "admin" 
     ? [
         { label: "Dashboard", path: "/admin" },
-        { label: "Manage Shuttles", path: "/admin/add-shuttle" },
-        { label: "Manage Buses", path: "/admin/buses" }, 
+        { label: "Shuttles", path: "/admin/add-shuttle" },
+        { label: "Buses", path: "/admin/buses" }, 
         { label: "Bookings", path: "/admin/bookings" },
+        { label: "AI Insights", path: "/admin/ai-insights" },
+        { label: "Maintenance", path: "/admin/maintenance" },
       ]
     : [
         { label: "Book a Seat", path: "/student" }, 

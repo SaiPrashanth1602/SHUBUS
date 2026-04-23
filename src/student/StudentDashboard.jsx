@@ -5,11 +5,28 @@ import { onAuthStateChanged } from "firebase/auth"
 import { db, auth } from "../config/firebase" 
 import PageWrapper from "../components/layout/PageWrapper"
 import { CalendarClock } from "lucide-react" 
+import { useServerTime } from "../services/useServerTime"
+import {
+  getBookingWindowStatus,
+  getTimeUntilCutoff,
+  formatCountdown,
+  getDemandLevel,
+  WindowStatus,
+  WINDOW_BADGE,
+  DemandLevel,
+} from "../services/bookingStatus"
+import {
+  subscribeStudentPenalty,
+  detectAndProcessMisses,
+  isStudentBlocked,
+  getLockEndDate,
+  payFine,
+} from "../services/penaltyService"
 
-// ✨ NEW: Smart date helper — after 3 PM (or 12 PM for testing), flip to tomorrow!
+// Smart date helper — after 3 PM, flip to tomorrow
 const getActiveDate = () => {
   const now = new Date()
-  if (now.getHours() >= 15) { // Change back to 15 when done testing!
+  if (now.getHours() >= 15) {
     const tomorrow = new Date(now)
     tomorrow.setDate(tomorrow.getDate() + 1)
     return tomorrow.toISOString().split("T")[0]
@@ -34,10 +51,15 @@ function StudentDashboard() {
   const [shuttles, setShuttles] = useState([])
   const [busMap, setBusMap] = useState({})
   const [loading, setLoading] = useState(true)
+  const { serverTime, isLoaded: timeLoaded } = useServerTime()
   
   // User Profile State
   const [userData, setUserData] = useState(null)
   const [greeting, setGreeting] = useState("")
+
+  // Penalty State
+  const [penaltyData, setPenaltyData] = useState(null)
+  const [payingFine, setPayingFine] = useState(false)
 
   // Filters
   const [selectedRoute, setSelectedRoute] = useState("")
@@ -47,9 +69,9 @@ function StudentDashboard() {
   
   // Smart dates instead of hardcoded 'today'
   const activeDate = getActiveDate()
-  const isSchedulingForTomorrow = new Date().getHours() >= 15 // Change back to 15 when done testing!
+  const isSchedulingForTomorrow = new Date().getHours() >= 15
 
-  // ✨ FIX: Top greeting always shows the actual CURRENT date normally
+  // Top greeting always shows the actual CURRENT date normally
   const currentDateDisplay = new Date().toLocaleDateString('en-IN', { 
     weekday: 'long', 
     day: 'numeric', 
@@ -103,16 +125,29 @@ function StudentDashboard() {
       setLoading(false)
     })
 
+    // --- Penalty subscription ---
+    let unsubscribePenalty = () => {}
+    const unsubscribeAuth2 = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        detectAndProcessMisses(user.uid).catch(() => {})
+        unsubscribePenalty = subscribeStudentPenalty(user.uid, (data) => {
+          setPenaltyData(data)
+        })
+      } else {
+        setPenaltyData(null)
+      }
+    })
+
     return () => {
       unsubscribeShuttles()
       unsubscribeBuses()
-      unsubscribeAuth() 
+      unsubscribeAuth()
+      unsubscribeAuth2()
+      unsubscribePenalty()
     }
   }, [activeDate]) 
 
-  // ==========================================
   // Smart Filtering Logic
-  // ==========================================
   const allowedShuttles = useMemo(() => {
     if (!userData || Object.keys(busMap).length === 0) return []
     
@@ -156,6 +191,35 @@ function StudentDashboard() {
             {currentDateDisplay}
           </p>
         </div>
+
+        {/* PENALTY WARNING BANNER */}
+        {penaltyData && isStudentBlocked(penaltyData, serverTime) && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex-1">
+              <p className="text-sm font-bold text-red-700 flex items-center gap-2">
+                🚫 Booking Disabled
+              </p>
+              <p className="text-xs text-red-500 mt-1">
+                You are temporarily blocked due to excessive missed/cancelled bookings.
+                {(penaltyData.fineDue || 0) > 0 && ` Fine due: ₹${penaltyData.fineDue}.`}
+                {" "}Blocked until {getLockEndDate(penaltyData)?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) || "lock expires"}.
+              </p>
+            </div>
+            {(penaltyData.fineDue || 0) > 0 && (
+              <button
+                onClick={async () => {
+                  setPayingFine(true)
+                  try { await payFine(auth.currentUser?.uid) } catch (e) { alert(e.message) }
+                  finally { setPayingFine(false) }
+                }}
+                disabled={payingFine}
+                className="bg-red-600 text-white px-5 py-2 rounded-xl text-xs font-bold hover:bg-red-700 transition whitespace-nowrap disabled:opacity-50"
+              >
+                {payingFine ? "Processing..." : `Pay ₹${penaltyData.fineDue}`}
+              </button>
+            )}
+          </div>
+        )}
 
         {/* FILTERS GRID */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
@@ -201,7 +265,6 @@ function StudentDashboard() {
             <span className="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-black">
               {userData.busType} Only
             </span>
-            {/* ✨ FIX: Moved the Tomorrow indicator here, styled like a clean badge */}
             {isSchedulingForTomorrow && (
               <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-black flex items-center gap-1 shadow-sm">
                 <CalendarClock size={12} />
@@ -249,11 +312,22 @@ function StudentDashboard() {
                 driver: { name: "N/A" },
                 busType: "Unknown"
               }
+
+              // ── BOOKING WINDOW STATUS (always visible) ──
+              const windowStatus = timeLoaded
+                ? getBookingWindowStatus(shuttle.date || activeDate, shuttle.time, serverTime)
+                : WindowStatus.OPEN
+              const windowBadge = WINDOW_BADGE[windowStatus]
+              const cutoff = timeLoaded
+                ? getTimeUntilCutoff(shuttle.date || activeDate, shuttle.time, serverTime)
+                : null
+              const isClosed = windowStatus === WindowStatus.CLOSED
+              const demandLevel = getDemandLevel(booked, total)
               
               return (
                 <div
                   key={shuttle.id}
-                  className="group bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all flex flex-col gap-4 relative overflow-hidden"
+                  className={`group bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all flex flex-col gap-4 relative overflow-hidden ${isClosed ? "opacity-70" : ""}`}
                 >
                   <div className={`absolute top-0 right-0 px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-bl-xl ${
                     bus.busType === "AC" ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"
@@ -292,7 +366,9 @@ function StudentDashboard() {
                   </div>
 
                   <div className="flex flex-col gap-3 mt-2">
-                    <div>
+                    {/* ── ALWAYS-VISIBLE STATUS ROW ── */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Seats Badge */}
                       <span className={`px-2 py-1 rounded-full text-xs font-bold ${
                         seatsLeft > 5
                           ? "bg-green-100 text-green-700"
@@ -302,10 +378,33 @@ function StudentDashboard() {
                       }`}>
                         {seatsLeft > 0 ? `${seatsLeft} seats left` : "Full"}
                       </span>
+
+                      {/* Window Status Badge */}
+                      {windowBadge && (
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase border ${windowBadge.bg} ${windowBadge.text} ${windowBadge.border}`}>
+                          {windowBadge.label}
+                        </span>
+                      )}
+
+                      {/* Demand Badge */}
+                      {demandLevel === DemandLevel.HIGH && (
+                        <span className="px-2 py-1 rounded-full text-[10px] font-bold uppercase bg-orange-100 text-orange-700 border border-orange-200">
+                          🔥 High Demand
+                        </span>
+                      )}
+
+                      {/* Countdown */}
+                      {cutoff && !isClosed && (
+                        <span className={`ml-auto text-xs font-mono font-bold ${
+                          windowStatus === WindowStatus.CLOSING ? "text-yellow-600" : "text-gray-400"
+                        }`}>
+                          Closes in {formatCountdown(cutoff)}
+                        </span>
+                      )}
                     </div>
 
                     <button
-                      disabled={seatsLeft <= 0}
+                      disabled={seatsLeft <= 0 || isClosed}
                       onClick={() =>
                         navigate(`/student/seat-layout/${shuttle.id}`, {
                           state: {
@@ -315,12 +414,12 @@ function StudentDashboard() {
                         })
                       }
                       className={`w-full py-3 rounded-xl font-bold text-sm shadow-md transition-all ${
-                        seatsLeft > 0
+                        seatsLeft > 0 && !isClosed
                           ? "bg-blue-600 text-white active:scale-[0.98]"
                           : "bg-gray-300 text-gray-500 cursor-not-allowed"
                       }`}
                     >
-                      {seatsLeft > 0 ? "Select Seat" : "Full"}
+                      {isClosed ? "Booking Closed" : seatsLeft > 0 ? "Select Seat" : "Full"}
                     </button>
                   </div>
                 </div>

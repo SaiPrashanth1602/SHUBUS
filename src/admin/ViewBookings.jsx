@@ -3,6 +3,12 @@ import { doc, getDoc } from "firebase/firestore"
 import { db } from "../config/firebase" 
 import PageWrapper from "../components/layout/PageWrapper"
 import { getAllBookings } from "../services/bookingServices"
+import { useServerTime } from "../services/useServerTime"
+import {
+  getBookingStatus,
+  BookingStatus,
+  STATUS_BADGE,
+} from "../services/bookingStatus"
 import { MapPin, Clock, Armchair, CalendarCheck, SearchX, ArrowUp } from "lucide-react"
 
 const formatDate = (timestamp) => {
@@ -17,7 +23,8 @@ function ViewBookings() {
   const [bookings, setBookings] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
-  const [showScrollTop, setShowScrollTop] = useState(false) // State for the button
+  const [showScrollTop, setShowScrollTop] = useState(false)
+  const { serverTime, isLoaded: timeLoaded } = useServerTime()
 
   useEffect(() => {
     const handleScroll = () => {
@@ -63,13 +70,17 @@ function ViewBookings() {
   }, [])
 
   const filteredBookings = bookings.filter(b => {
-    const query = search.toLowerCase().trim()
-    if (!query) return true
+    const q = search.toLowerCase().trim()
+    if (!q) return true
     const regNo = (b.displayId || "").toLowerCase()
     const route = (b.route || b.busDetails?.route || "").toLowerCase()
     const departureTime = (b.time || b.busDetails?.time || "").toLowerCase() 
-    const status = (b.status || "").toLowerCase()
-    return regNo.includes(query) || route.includes(query) || departureTime.includes(query) || status.includes(query)
+    const rawStatus = (b.status || "").toLowerCase()
+    
+    // Also search by derived status
+    const derivedStatus = timeLoaded ? getBookingStatus(b) : ""
+    
+    return regNo.includes(q) || route.includes(q) || departureTime.includes(q) || rawStatus.includes(q) || derivedStatus.toLowerCase().includes(q)
   })
 
   const scrollToTop = () => {
@@ -92,7 +103,7 @@ function ViewBookings() {
       <div className="mb-6">
         <input
           type="text"
-          placeholder="Search Reg No, Route, Departure Time..."
+          placeholder="Search Reg No, Route, Departure Time, Status..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           className="w-full md:w-[450px] p-4 rounded-2xl border border-gray-200 bg-white shadow-sm focus:ring-2 focus:ring-vitblue outline-none transition-all"
@@ -125,49 +136,55 @@ function ViewBookings() {
                   </td>
                 </tr>
               ) : (
-                filteredBookings.map((booking) => (
-                  <tr key={booking.id} className="hover:bg-blue-50/40 transition-colors group">
-                    <td className="p-5 pl-8">
-                      <span className="font-bold text-gray-900 font-mono tracking-tight text-sm">{booking.displayId}</span>
-                    </td>
-                    <td className="p-5">
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-1.5 text-vitblue font-bold text-sm">
-                            <MapPin size={14} />
-                            {booking.route || booking.busDetails?.route || "Unknown Route"}
+                filteredBookings.map((booking) => {
+                  // ── DERIVE STATUS DYNAMICALLY ──
+                  const derivedStatus = timeLoaded
+                    ? getBookingStatus(booking)
+                    : BookingStatus.BOOKED
+                  const badge = STATUS_BADGE[derivedStatus]
+
+                  return (
+                    <tr key={booking.id} className="hover:bg-blue-50/40 transition-colors group">
+                      <td className="p-5 pl-8">
+                        <span className="font-bold text-gray-900 font-mono tracking-tight text-sm">{booking.displayId}</span>
+                      </td>
+                      <td className="p-5">
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5 text-vitblue font-bold text-sm">
+                              <MapPin size={14} />
+                              {booking.route || booking.busDetails?.route || "Unknown Route"}
+                          </div>
+                          <div className="flex items-center gap-1.5 text-gray-400 text-xs mt-1 font-semibold">
+                              <Clock size={12} />
+                              Departure: {booking.time || booking.busDetails?.time || "N/A"}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1.5 text-gray-400 text-xs mt-1 font-semibold">
-                            <Clock size={12} />
-                            Departure: {booking.time || booking.busDetails?.time || "N/A"}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 w-fit px-3 py-1.5 rounded-lg">
+                          <Armchair size={14} className="text-slate-400" />
+                          <span className="font-black text-gray-700">{booking.seatNumber}</span>
                         </div>
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 w-fit px-3 py-1.5 rounded-lg">
-                        <Armchair size={14} className="text-slate-400" />
-                        <span className="font-black text-gray-700">{booking.seatNumber}</span>
-                      </div>
-                    </td>
-                    <td className="p-5 text-xs font-medium text-gray-500">{formatDate(booking.bookedAt)}</td>
-                    <td className="p-5 text-center">
-                      <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border
-                        ${(booking.status === 'confirmed' || booking.status === 'CONFIRMED') 
-                          ? 'bg-green-100 text-green-700 border-green-200' 
-                          : (booking.status === 'claimed' || booking.status === 'CLAIMED')
-                            ? 'bg-purple-100 text-purple-700 border-purple-200 shadow-sm' 
-                            : 'bg-gray-100 text-gray-600 border-gray-200'
-                        }
-                      `}>{booking.status}</span>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="p-5 text-xs font-medium text-gray-500">{formatDate(booking.bookedAt)}</td>
+                      <td className="p-5 text-center">
+                        {badge && (
+                          <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border inline-flex items-center gap-1 ${badge.bg} ${badge.text} ${badge.border}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`}></span>
+                            {badge.label}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* ✨ BACK TO TOP BUTTON */}
+      {/* BACK TO TOP BUTTON */}
       {showScrollTop && (
         <button
           onClick={scrollToTop}

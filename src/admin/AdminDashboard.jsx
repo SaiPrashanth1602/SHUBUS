@@ -9,8 +9,19 @@ import { useNavigate } from "react-router-dom"
 import { subscribeShuttlesByDate } from "../services/shuttleServices"
 import { doc, getDoc } from "firebase/firestore"
 import { auth, db } from "../config/firebase"
-import { Bus, MapPin, User, Phone, Hash, Users, CalendarClock, Eye, Edit, Trash2, ArrowUp } from "lucide-react"
+import { Bus, MapPin, User, Phone, Hash, Users, CalendarClock, Eye, Edit, Trash2, ArrowUp, Clock } from "lucide-react"
 import Modal from "../components/ui/Modal"
+import { useServerTime } from "../services/useServerTime"
+import {
+  getBookingWindowStatus,
+  getTimeUntilCutoff,
+  formatCountdown,
+  getDemandLevel,
+  WindowStatus,
+  WINDOW_BADGE,
+  DemandLevel,
+  DEMAND_BADGE,
+} from "../services/bookingStatus"
 
 // Smart date helper — after 3 PM, flip to tomorrow
 const getActiveDate = () => {
@@ -28,12 +39,13 @@ function AdminDashboard() {
   const navigate = useNavigate()
   const [routeFilter, setRouteFilter] = useState("ALL")
   const [timeFilter, setTimeFilter] = useState("ALL")
+  const { serverTime, isLoaded: timeLoaded } = useServerTime()
 
   const [shuttles, setShuttles] = useState([])
   const [busMap, setBusMap] = useState({})
   const [loading, setLoading] = useState(true)
   const [editingShuttle, setEditingShuttle] = useState(null)
-  const [showScrollTop, setShowScrollTop] = useState(false) // ✨ State for button
+  const [showScrollTop, setShowScrollTop] = useState(false)
 
   // Smart active date for queries
   const activeDate = getActiveDate()
@@ -42,7 +54,7 @@ function AdminDashboard() {
   const availableRoutes = Array.from(new Set(shuttles.map(s => s.route)))
   const availableTimes = Array.from(new Set(shuttles.map(s => s.time)))
 
-  // ✨ Handle Scroll for Back to Top
+  // Handle Scroll for Back to Top
   useEffect(() => {
     const handleScroll = () => setShowScrollTop(window.scrollY > 300)
     window.addEventListener("scroll", handleScroll)
@@ -96,6 +108,19 @@ function AdminDashboard() {
   const nonAcCount = totalShuttles - acCount
   const uniqueRoutes = new Set(shuttles.map(s => s.route)).size
 
+  // ── DEMAND METRICS ──
+  const fullShuttles = shuttles.filter(s => {
+    const total = s.totalSeats || 50
+    const booked = s.bookedSeats || 0
+    return getDemandLevel(booked, total) === DemandLevel.FULL
+  }).length
+
+  const highDemandShuttles = shuttles.filter(s => {
+    const total = s.totalSeats || 50
+    const booked = s.bookedSeats || 0
+    return getDemandLevel(booked, total) === DemandLevel.HIGH
+  }).length
+
   const handleCancelShuttle = async (shuttleId) => {
     if (!window.confirm("Cancel this shuttle?")) return
     try {
@@ -138,6 +163,17 @@ function AdminDashboard() {
           <p className="text-gray-500 mt-1 font-medium text-sm">
             {currentDateDisplay}
           </p>
+
+          {/* ── LIVE SERVER CLOCK (always visible) ── */}
+          {timeLoaded && (
+            <div className="flex items-center gap-2 mt-2 bg-gray-50 rounded-lg px-3 py-1.5 w-fit border border-gray-100">
+              <Clock size={14} className="text-blue-500" />
+              <span className="text-xs font-bold text-gray-500 uppercase">Server Time</span>
+              <span className="font-mono font-bold text-sm text-gray-800">
+                {serverTime.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+              </span>
+            </div>
+          )}
         </div>
 
         <button
@@ -149,7 +185,7 @@ function AdminDashboard() {
       </div>
 
       {/* ================= OVERVIEW METRICS ================= */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-8">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4 mb-4">
         <div className="bg-white p-4 md:p-5 rounded-xl shadow-sm border border-gray-100">
           <p className="text-gray-500 text-[10px] md:text-xs font-bold uppercase tracking-wider">Total Buses</p>
           <p className="text-2xl md:text-3xl font-bold text-gray-800 mt-1">{Object.keys(busMap).length}</p>
@@ -176,6 +212,34 @@ function AdminDashboard() {
         </div>
       </div>
 
+      {/* ── DEMAND ALERT STRIP ── */}
+      {(fullShuttles > 0 || highDemandShuttles > 0) && (
+        <div className={`rounded-xl px-4 py-3 mb-6 flex flex-wrap items-center gap-3 border ${
+          fullShuttles > 0
+            ? "bg-red-50 border-red-200"
+            : "bg-orange-50 border-orange-200"
+        }`}>
+          <span className="text-sm font-bold">
+            {fullShuttles > 0 ? "⚠️" : "🔥"} Demand Alert:
+          </span>
+          {fullShuttles > 0 && (
+            <span className="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded-full border border-red-200">
+              {fullShuttles} shuttle{fullShuttles > 1 ? "s" : ""} FULL
+            </span>
+          )}
+          {highDemandShuttles > 0 && (
+            <span className="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-1 rounded-full border border-orange-200">
+              {highDemandShuttles} at HIGH DEMAND
+            </span>
+          )}
+          {fullShuttles > 0 && (
+            <span className="text-xs text-gray-600 ml-auto">
+              Consider adding more buses →
+            </span>
+          )}
+        </div>
+      )}
+
       {/* ================= FILTERS ================= */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 mb-6">
         <div className="flex flex-col md:flex-row md:items-center gap-4">
@@ -193,7 +257,7 @@ function AdminDashboard() {
         </div>
       </div>
 
-      {/* ================= TABLE (UPDATED UI) ================= */}
+      {/* ================= TABLE ================= */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden min-h-[300px]">
         <div className="p-4 border-b border-gray-50 flex flex-wrap items-center gap-3">
           <h2 className="font-bold text-gray-700 flex items-center gap-2">
@@ -216,16 +280,16 @@ function AdminDashboard() {
           </div>
         ) : (
           <div className="overflow-x-auto scrollbar-hide">
-            <table className="w-full text-left border-collapse min-w-[950px]">
+            <table className="w-full text-left border-collapse min-w-[1050px]">
               <thead className="bg-gray-50 text-gray-500 text-[10px] uppercase font-bold tracking-widest border-b border-gray-100">
                 <tr>
                   <th className="p-4">Bus</th>
-                  <th className="p-4">Morning Route</th>
-                  <th className="p-4">Plate</th>
-                  <th className="p-4">Route (Today)</th>
+                  <th className="p-4">Route</th>
                   <th className="p-4">Time</th>
                   <th className="p-4">Driver</th>
                   <th className="p-4">Type</th>
+                  <th className="p-4">Booking</th>
+                  <th className="p-4">Demand</th>
                   <th className="p-4 text-center">Actions</th>
                 </tr>
               </thead>
@@ -233,11 +297,23 @@ function AdminDashboard() {
                 {filteredShuttles.map(shuttle => {
                   const bus = busMap[shuttle.busId]
                   if (!bus) return null
+
+                  // ── COMPUTE STATUS ──
+                  const total = shuttle.totalSeats || 50
+                  const booked = shuttle.bookedSeats || 0
+                  const windowStatus = timeLoaded
+                    ? getBookingWindowStatus(shuttle.date || activeDate, shuttle.time, serverTime)
+                    : WindowStatus.OPEN
+                  const cutoff = timeLoaded
+                    ? getTimeUntilCutoff(shuttle.date || activeDate, shuttle.time, serverTime)
+                    : null
+                  const windowBadge = WINDOW_BADGE[windowStatus]
+                  const demandLevel = getDemandLevel(booked, total)
+                  const demandBadge = DEMAND_BADGE[demandLevel]
+
                   return (
                     <tr key={shuttle.id} className="hover:bg-blue-50/50 transition-colors group">
                       <td className="p-4 font-bold text-vitblue">{bus.busNo}</td>
-                      <td className="p-4 text-gray-600 text-sm">{bus.morningRoute || "—"}</td>
-                      <td className="p-4 text-gray-400 font-mono text-xs uppercase">{bus.numberPlate}</td>
                       <td className="p-4 font-medium text-gray-800">{shuttle.route}</td>
                       <td className="p-4">
                         <span className="bg-green-100 text-green-700 px-2 py-1 rounded text-xs font-bold">{shuttle.time}</span>
@@ -248,6 +324,39 @@ function AdminDashboard() {
                           bus.busType === "AC" ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700"
                         }`}>{bus.busType}</span>
                       </td>
+
+                      {/* ── BOOKING WINDOW STATUS (always visible) ── */}
+                      <td className="p-4">
+                        <div className="flex flex-col gap-1">
+                          {windowBadge && (
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase w-fit border ${windowBadge.bg} ${windowBadge.text} ${windowBadge.border}`}>
+                              {windowBadge.label}
+                            </span>
+                          )}
+                          {cutoff && windowStatus !== WindowStatus.CLOSED && (
+                            <span className={`text-[10px] font-mono font-bold ${
+                              windowStatus === WindowStatus.CLOSING ? "text-yellow-600" : "text-gray-400"
+                            }`}>
+                              {formatCountdown(cutoff)}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-gray-400 font-semibold">
+                            {booked}/{total} booked
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* ── DEMAND LEVEL ── */}
+                      <td className="p-4">
+                        {demandBadge ? (
+                          <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase border ${demandBadge.bg} ${demandBadge.text} ${demandBadge.border}`}>
+                            {demandBadge.label}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400">Normal</span>
+                        )}
+                      </td>
+
                       <td className="p-4">
                         <div className="flex justify-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                           <button onClick={() => setSelectedBus(bus)} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg"><Eye size={18} /></button>
@@ -317,7 +426,7 @@ function AdminDashboard() {
         </div>
       )}
 
-      {/* ✨ Floating Back to Top Button */}
+      {/* Floating Back to Top Button */}
       {showScrollTop && (
         <button
           onClick={scrollToTop}

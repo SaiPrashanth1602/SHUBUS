@@ -2,8 +2,18 @@ import { useState, useEffect } from "react"
 import { useParams, useNavigate, useLocation } from "react-router-dom"
 import PageWrapper from "../components/layout/PageWrapper"
 import { auth, db } from "../config/firebase"
-import { collection, query, where, getDocs, doc, getDoc } from "firebase/firestore"
+import { doc, getDoc } from "firebase/firestore"
 import { bookSeat, subscribeBookedSeats } from "../services/bookingServices"
+import { useServerTime } from "../services/useServerTime"
+import {
+  getBookingWindowStatus,
+  getTimeUntilCutoff,
+  formatCountdown,
+  WindowStatus,
+  WINDOW_BADGE,
+  getDemandLevel,
+  DemandLevel,
+} from "../services/bookingStatus"
 
 
 // 🚌 SEAT LAYOUT CONSTANT
@@ -19,6 +29,17 @@ const BUS_SEAT_LAYOUT = [
   ["9A", "9B", null, "9C", "9D", "9E"],
   ["10A", "10B", "10C", "10D", "10E", "10F"],
 ]
+
+// Smart date — after 3 PM, book for tomorrow
+const getActiveDate = () => {
+  const now = new Date()
+  if (now.getHours() >= 15) {
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    return tomorrow.toISOString().split("T")[0]
+  }
+  return now.toISOString().split("T")[0]
+}
 
 // --- VISUAL COMPONENTS ---
 const SteeringWheel = () => (
@@ -58,8 +79,9 @@ function SeatLayout() {
   const { busId } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
+  const { serverTime, isLoaded: timeLoaded } = useServerTime()
   const [busDetails, setBusDetails] = useState(null)
-  // 🆕 GET TIME & ROUTE FROM PREVIOUS PAGE
+  // Get time & route from previous page
   const { route: routeName = "Bus Route", time: busTime } = location.state || {}
 
   // Logic State
@@ -67,23 +89,34 @@ function SeatLayout() {
   const [bookedSeats, setBookedSeats] = useState([])
   const [loading, setLoading] = useState(false)
 
-  // 1. Load Real Booked Seats from Firebase
+  // ─── SHUTTLE DATE (for cutoff computation) ───
+  const [shuttleDate, setShuttleDate] = useState(null)
+
+  // ─────────────────────────────────────────────
+  // 1. REAL-TIME SEAT SUBSCRIPTION
+  // ─────────────────────────────────────────────
   useEffect(() => {
-    const unsubscribe = subscribeBookedSeats(busId, (data) => {
-      setBookedSeats(data)
+    if (!busId) return
+
+    const unsubscribe = subscribeBookedSeats(busId, (seats) => {
+      setBookedSeats(seats)
     })
 
-    return () => unsubscribe()
+    return () => {
+      unsubscribe()
+    }
   }, [busId])
+
   const totalSeats = busDetails?.totalSeats || 50
   const bookedCount = bookedSeats.length
   const remainingSeats = totalSeats - bookedCount
 
-
+  // ─────────────────────────────────────────────
+  // 2. FETCH BUS + SHUTTLE DETAILS
+  // ─────────────────────────────────────────────
   useEffect(() => {
     const fetchBusFromShuttle = async () => {
       try {
-        // 1️⃣ Get shuttle
         const shuttleSnap = await getDoc(doc(db, "shuttles", busId))
 
         if (!shuttleSnap.exists()) {
@@ -92,6 +125,7 @@ function SeatLayout() {
         }
 
         const shuttleData = shuttleSnap.data()
+        setShuttleDate(shuttleData.date || getActiveDate())
         const realBusId = shuttleData.busId
 
         if (!realBusId) {
@@ -99,7 +133,6 @@ function SeatLayout() {
           return
         }
 
-        // 2️⃣ Get bus
         const busSnap = await getDoc(doc(db, "buses", realBusId))
 
         if (busSnap.exists()) {
@@ -117,17 +150,35 @@ function SeatLayout() {
   }, [busId])
 
 
+  // ─── COMPUTE BOOKING WINDOW STATUS ───
+  const activeDate = shuttleDate || getActiveDate()
+  const windowStatus = timeLoaded
+    ? getBookingWindowStatus(activeDate, busTime, serverTime)
+    : WindowStatus.OPEN
+  const cutoff = timeLoaded
+    ? getTimeUntilCutoff(activeDate, busTime, serverTime)
+    : null
+  const windowBadge = WINDOW_BADGE[windowStatus]
+  const isClosed = windowStatus === WindowStatus.CLOSED
+  const demandLevel = getDemandLevel(bookedCount, totalSeats)
 
-  // Handle clicking a seat
+
+  // ─────────────────────────────────────────────
+  // 3. SEAT CLICK HANDLER
+  // ─────────────────────────────────────────────
   const handleSeatClick = (seatId) => {
-    const booking = bookedSeats.find(b => b.seatNumber === seatId)
-    if (booking) return
+    if (isClosed) return // Block when booking window closed
+    const isBooked = bookedSeats.some(b => b.seatNumber === seatId)
+    if (isBooked) return
     setSelectedSeat(seatId === selectedSeat ? null : seatId)
   }
 
-  // 2. Confirm & Save to Firebase (ROBUST VERSION)
+  // ─────────────────────────────────────────────
+  // 4. CONFIRM BOOKING
+  // ─────────────────────────────────────────────
   const handleConfirm = async () => {
     if (!selectedSeat) return alert("Please select a seat")
+    if (isClosed) return alert("Booking window has closed for this shuttle")
 
     const user = auth.currentUser
     if (!user) return alert("Please login")
@@ -135,35 +186,6 @@ function SeatLayout() {
     setLoading(true)
 
     try {
-      // ✅ SAME DATE LOGIC EVERYWHERE
-      const getActiveDate = () => {
-        const now = new Date()
-        if (now.getHours() >= 15) {
-          const tomorrow = new Date(now)
-          tomorrow.setDate(tomorrow.getDate() + 1)
-          return tomorrow.toISOString().split("T")[0]
-        }
-        return now.toISOString().split("T")[0]
-      }
-
-      const activeDate = getActiveDate()
-
-      // ✅ CHECK EXISTING BOOKING
-      const q = query(
-        collection(db, "bookings"),
-        where("studentId", "==", user.uid),
-        where("date", "==", activeDate)
-      )
-
-      const snapshot = await getDocs(q)
-
-      if (!snapshot.empty) {
-        alert("⛔ YOU HAVE ALREADY BOOKED A SEAT!")
-        navigate("/student/my-bookings")
-        return
-      }
-
-      // ✅ BOOK SEAT
       await bookSeat(user.uid, busId, selectedSeat, {
         route: routeName,
         date: activeDate,
@@ -192,6 +214,49 @@ function SeatLayout() {
         </h2>
       </div>
 
+      {/* ── BOOKING WINDOW STATUS BAR (always visible) ── */}
+      <div className="max-w-[400px] mx-auto mb-4 space-y-2">
+
+        {/* Window Badge + Countdown */}
+        <div className="flex items-center justify-between bg-white rounded-xl px-4 py-3 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-gray-400 uppercase">Booking</span>
+            {windowBadge && (
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase border ${windowBadge.bg} ${windowBadge.text} ${windowBadge.border}`}>
+                {windowBadge.label}
+              </span>
+            )}
+          </div>
+
+          {/* Countdown (always visible when applicable) */}
+          {cutoff && !isClosed && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold text-gray-400 uppercase">Closes in</span>
+              <span className={`font-mono font-bold text-sm ${
+                windowStatus === WindowStatus.CLOSING ? "text-yellow-600" : "text-gray-700"
+              }`}>
+                {formatCountdown(cutoff)}
+              </span>
+            </div>
+          )}
+
+          {isClosed && (
+            <span className="text-xs font-bold text-red-500">Booking Closed</span>
+          )}
+        </div>
+
+        {/* Demand Badge */}
+        {demandLevel !== DemandLevel.NORMAL && (
+          <div className={`flex items-center justify-center gap-2 rounded-xl px-4 py-2 border text-xs font-bold uppercase ${
+            demandLevel === DemandLevel.FULL
+              ? "bg-red-50 text-red-600 border-red-200"
+              : "bg-orange-50 text-orange-600 border-orange-200"
+          }`}>
+            {demandLevel === DemandLevel.FULL ? "🚫 All Seats Full" : "🔥 High Demand — Book Fast!"}
+          </div>
+        )}
+      </div>
+
       <p className="text-gray-600 mb-6 text-center text-sm">
         <span className="font-semibold">{bookedCount}</span> / {totalSeats} seats booked •{" "}
         <span className="font-semibold text-green-600">{remainingSeats}</span> remaining
@@ -200,7 +265,7 @@ function SeatLayout() {
 
 
       {/* HORIZONTAL SCROLL WRAPPER */}
-      <div className="w-full overflow-x-hidden pb-12 px-2 flex justify-center relative">
+      <div className={`w-full overflow-x-hidden pb-12 px-2 flex justify-center relative ${isClosed ? "opacity-50 pointer-events-none" : ""}`}>
 
         {/* BUS WRAPPER */}
         <div className="relative w-[92%] md:w-[400px] max-w-[400px]">
@@ -257,7 +322,7 @@ function SeatLayout() {
 
                     const booking = bookedSeats.find(b => b.seatNumber === seat)
                     const isBooked = !!booking
-                    const isClaimed = booking?.claimed
+                    const isClaimed = booking?.claimed === true
                     const isSelected = selectedSeat === seat
 
                     let seatStyle = "bg-white text-gray-700 border-b-4 border-gray-300 hover:border-vitblue hover:bg-blue-50 shadow-sm"
@@ -274,11 +339,15 @@ function SeatLayout() {
                       seatStyle = "bg-vitblue text-white border-b-4 border-blue-800 shadow-lg transform scale-105"
                     }
 
+                    if (isClosed) {
+                      seatStyle = "bg-gray-200 text-gray-400 border-b-4 border-gray-300 cursor-not-allowed"
+                    }
+
                     return (
                       <button
                         key={seat}
                         onClick={() => handleSeatClick(seat)}
-                        disabled={isBooked || loading}
+                        disabled={isBooked || loading || isClosed}
                         className={`
                             w-full aspect-square rounded-md 
                             font-bold text-[10px] md:text-xs flex items-center justify-center 
@@ -312,11 +381,7 @@ function SeatLayout() {
         <div className="flex items-center gap-2"><div className="w-5 h-5 bg-white border-b-4 border-gray-300 rounded"></div> Available</div>
         <div className="flex items-center gap-2"><div className="w-5 h-5 bg-vitblue border-b-4 border-blue-800 rounded"></div> Selected</div>
         <div className="flex items-center gap-2"><div className="w-5 h-5 bg-red-50 border-b-4 border-red-100 rounded text-red-300 text-xs flex items-center justify-center font-bold">X</div> Booked</div>
-
-        <div className="w-5 h-5 bg-red-600 border-b-4 border-red-800 rounded"></div>Claimed
-
-
-
+        <div className="flex items-center gap-2"><div className="w-5 h-5 bg-red-600 border-b-4 border-red-800 rounded"></div> Claimed</div>
       </div>
 
       {/* Mobile Confirm Bar */}
@@ -327,10 +392,10 @@ function SeatLayout() {
         </div>
         <button
           onClick={handleConfirm}
-          disabled={!selectedSeat || loading}
-          className={`px-8 py-3 rounded-lg font-bold ${selectedSeat && !loading ? "bg-vitblue text-white" : "bg-gray-200 text-gray-400"}`}
+          disabled={!selectedSeat || loading || isClosed}
+          className={`px-8 py-3 rounded-lg font-bold ${selectedSeat && !loading && !isClosed ? "bg-vitblue text-white" : "bg-gray-200 text-gray-400"}`}
         >
-          {loading ? "..." : "Confirm"}
+          {isClosed ? "Closed" : loading ? "..." : "Confirm"}
         </button>
       </div>
 
@@ -338,10 +403,14 @@ function SeatLayout() {
       <div className="hidden md:flex justify-center pb-12">
         <button
           onClick={handleConfirm}
-          disabled={!selectedSeat || loading}
-          className={`px-12 py-3 rounded-xl font-bold shadow-lg transform transition active:scale-95 ${selectedSeat && !loading ? "bg-vitblue text-white hover:bg-blue-700" : "bg-gray-300 text-gray-500 cursor-not-allowed"}`}
+          disabled={!selectedSeat || loading || isClosed}
+          className={`px-12 py-3 rounded-xl font-bold shadow-lg transform transition active:scale-95 ${
+            selectedSeat && !loading && !isClosed
+              ? "bg-vitblue text-white hover:bg-blue-700"
+              : "bg-gray-300 text-gray-500 cursor-not-allowed"
+          }`}
         >
-          {loading ? "Booking Ticket..." : "Confirm Booking"}
+          {isClosed ? "Booking Closed" : loading ? "Booking Ticket..." : "Confirm Booking"}
         </button>
       </div>
 

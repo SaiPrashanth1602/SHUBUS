@@ -1,21 +1,33 @@
 import { useEffect, useState } from "react"
-import { collection, query, where, getDocs, deleteDoc, doc } from "firebase/firestore"
+import { collection, query, where, onSnapshot } from "firebase/firestore"
 import { auth, db } from "../config/firebase"
 import { onAuthStateChanged } from "firebase/auth"
 import PageWrapper from "../components/layout/PageWrapper"
-import { useNavigate } from "react-router-dom";
-import { runTransaction } from "firebase/firestore"
+import { useNavigate } from "react-router-dom"
+import { cancelBooking } from "../services/bookingServices"
 import ConfirmModal from "../components/ui/ConfirmModal"
 import Toast from "../components/ui/Toast"
-const getActiveDate = () => {
-  const now = new Date()
-  if (now.getHours() >= 15) {
-    const tomorrow = new Date(now)
-    tomorrow.setDate(tomorrow.getDate() + 1)
-    return tomorrow.toISOString().split("T")[0]
-  }
-  return now.toISOString().split("T")[0]
-}
+import { useServerTime } from "../services/useServerTime"
+import {
+  getBookingStatus,
+  getJourneyStatus,
+  getTimeUntilCutoff,
+  formatCountdown,
+  BookingStatus,
+  JourneyStatus,
+  STATUS_BADGE,
+  JOURNEY_BADGE,
+} from "../services/bookingStatus"
+import {
+  subscribeStudentPenalty,
+  detectAndProcessMisses,
+  isStudentBlocked,
+  getLockEndDate,
+  payFine,
+  MISS_THRESHOLD,
+  CANCEL_THRESHOLD,
+} from "../services/penaltyService"
+
 // Helper to format timestamps nicely
 const formatDate = (timestamp) => {
   if (!timestamp) return "Date Pending"
@@ -26,25 +38,10 @@ const formatDate = (timestamp) => {
   })
 }
 
-// ✨ NEW: Helper to check if a specific ticket time has already passed
-const isTicketExpired = (ticketDate, ticketTime) => {
-  if (!ticketDate || !ticketTime) return false;
-
-  try {
-    const [year, month, day] = ticketDate.split("-").map(Number)
-    const [hours, minutes] = ticketTime.split(":").map(Number)
-
-    const departureTime = new Date(year, month - 1, day, hours, minutes)
-    const now = new Date()
-
-    return now > departureTime
-  } catch (error) {
-    return false
-  }
-}
 
 function StudentBooking() {
-  const navigate = useNavigate();
+  const navigate = useNavigate()
+  const { serverTime, isLoaded: timeLoaded } = useServerTime()
   const [bookings, setBookings] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedTicket, setSelectedTicket] = useState(null)
@@ -54,74 +51,73 @@ function StudentBooking() {
   const [showToast, setShowToast] = useState(false)
   const [cancelLoading, setCancelLoading] = useState(false)
 
-  // 🇮🇳 FORCE IST DATE (YYYY-MM-DD)
-  
+  // ── PENALTY STATE ──
+  const [penaltyData, setPenaltyData] = useState(null)
+  const [payingFine, setPayingFine] = useState(false)
 
+  // ─────────────────────────────────────────────
+  // REAL-TIME BOOKING SUBSCRIPTION
+  // ─────────────────────────────────────────────
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let unsubscribeBookings = null
+    let unsubscribePenalty = null
+
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      if (unsubscribeBookings) { unsubscribeBookings(); unsubscribeBookings = null }
+      if (unsubscribePenalty) { unsubscribePenalty(); unsubscribePenalty = null }
+
       if (!user) {
         setLoading(false)
         setBookings([])
+        setPenaltyData(null)
         return
       }
 
-      try {
-        const q = query(
-          collection(db, "bookings"),
-          where("studentId", "==", user.uid)
-        )
-        const snapshot = await getDocs(q)
-        const myBookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+      // Detect and process past misses on mount
+      detectAndProcessMisses(user.uid).catch(err =>
+        console.error("Miss detection error:", err)
+      )
 
-        // Sort: Newest first
+      // Real-time listener on bookings
+      const q = query(
+        collection(db, "bookings"),
+        where("studentId", "==", user.uid)
+      )
+
+      unsubscribeBookings = onSnapshot(q, (snapshot) => {
+        const myBookings = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
         myBookings.sort((a, b) => (b.bookedAt?.seconds || 0) - (a.bookedAt?.seconds || 0))
         setBookings(myBookings)
-      } catch (error) {
-        console.error("❌ Error fetching bookings:", error)
-      } finally {
         setLoading(false)
-      }
-    })
-    return () => unsubscribe()
-  }, [])
-
-  const handleCancel = async () => {
-    if (!selectedTicket) return
-
-    setCancelLoading(true)
-
-    try {
-      const shuttleRef = doc(db, "shuttles", selectedTicket.shuttleId)
-      const bookingRef = doc(db, "bookings", selectedTicket.id)
-
-      await runTransaction(db, async (transaction) => {
-        const shuttleSnap = await transaction.get(shuttleRef)
-        const bookingSnap = await transaction.get(bookingRef)
-
-        if (!bookingSnap.exists()) throw new Error("Booking not found")
-
-        const bookingData = bookingSnap.data()
-        if (bookingData.status !== "confirmed") {
-          throw new Error("Booking already cancelled")
-        }
-
-        transaction.delete(bookingRef)
-
-        if (shuttleSnap.exists()) {
-          const currentBooked = shuttleSnap.data().bookedSeats || 0
-          transaction.update(shuttleRef, {
-            bookedSeats: Math.max(0, currentBooked - 1)
-          })
-        }
+      }, (error) => {
+        console.error("❌ Error in bookings snapshot:", error)
+        setLoading(false)
       })
 
-      // Smooth card fade-out
-      setBookings(prev => prev.filter(b => b.id !== selectedTicket.id))
+      // Real-time listener on penalty data
+      unsubscribePenalty = subscribeStudentPenalty(user.uid, (data) => {
+        setPenaltyData(data)
+      })
+    })
 
+    return () => {
+      unsubscribeAuth()
+      if (unsubscribeBookings) unsubscribeBookings()
+      if (unsubscribePenalty) unsubscribePenalty()
+    }
+  }, [])
+
+  // ─────────────────────────────────────────────
+  // CANCEL BOOKING (hard-delete)
+  // ─────────────────────────────────────────────
+  const handleCancel = async () => {
+    if (!selectedTicket) return
+    setCancelLoading(true)
+    try {
+      await cancelBooking(selectedTicket.id)
       setToastType("success")
       setToastMessage("Booking cancelled successfully")
       setShowToast(true)
-
     } catch (err) {
       setToastType("danger")
       setToastMessage(err.message)
@@ -129,14 +125,121 @@ function StudentBooking() {
     } finally {
       setCancelLoading(false)
       setShowCancelModal(false)
+      setSelectedTicket(null)
     }
   }
+
+  // ─────────────────────────────────────────────
+  // PAY FINE (simulated)
+  // ─────────────────────────────────────────────
+  const handlePayFine = async () => {
+    const user = auth.currentUser
+    if (!user) return
+    setPayingFine(true)
+    try {
+      await payFine(user.uid)
+      setToastType("success")
+      setToastMessage("Fine paid successfully! You can book again.")
+      setShowToast(true)
+    } catch (err) {
+      setToastType("danger")
+      setToastMessage(err.message)
+      setShowToast(true)
+    } finally {
+      setPayingFine(false)
+    }
+  }
+
+  // ── Derived penalty state ──
+  const blocked = penaltyData ? isStudentBlocked(penaltyData, serverTime) : false
+  const lockEnd = penaltyData ? getLockEndDate(penaltyData) : null
 
   return (
     <PageWrapper role="student">
       <h1 className="text-2xl font-bold text-vitblue mb-6">My Bookings</h1>
 
-      {loading ? (
+      {/* ── PENALTY STATS CARD ── */}
+      {penaltyData && (
+        <div className="max-w-2xl mx-auto mb-6">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
+            <h3 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Booking History</h3>
+            <div className="grid grid-cols-4 gap-3 text-center">
+              <div>
+                <p className="text-2xl font-extrabold text-gray-800">{penaltyData.totalBookings || 0}</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">Bookings</p>
+              </div>
+              <div>
+                <p className="text-2xl font-extrabold text-green-600">{penaltyData.totalClaims || 0}</p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">Claims</p>
+              </div>
+              <div>
+                <p className={`text-2xl font-extrabold ${(penaltyData.consecutiveMisses || 0) > 0 ? "text-red-600" : "text-gray-800"}`}>
+                  {penaltyData.consecutiveMisses || 0}
+                </p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">Misses</p>
+              </div>
+              <div>
+                <p className={`text-2xl font-extrabold ${(penaltyData.consecutiveCancels || 0) > 0 ? "text-orange-600" : "text-gray-800"}`}>
+                  {penaltyData.consecutiveCancels || 0}
+                </p>
+                <p className="text-[10px] text-gray-400 font-bold uppercase mt-0.5">Cancels</p>
+              </div>
+            </div>
+
+            {/* Miss Warning */}
+            {(penaltyData.consecutiveMisses || 0) > 0 && !blocked && (
+              <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                <span className="text-amber-600 text-sm">⚠️</span>
+                <p className="text-xs font-semibold text-amber-700">
+                  {penaltyData.consecutiveMisses} / {MISS_THRESHOLD} consecutive misses.
+                  {" "}{MISS_THRESHOLD - penaltyData.consecutiveMisses} more will result in a block.
+                </p>
+              </div>
+            )}
+
+            {/* Cancel Warning */}
+            {(penaltyData.consecutiveCancels || 0) > 0 && !blocked && (
+              <div className="mt-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                <span className="text-orange-600 text-sm">⚠️</span>
+                <p className="text-xs font-semibold text-orange-700">
+                  {penaltyData.consecutiveCancels} / {CANCEL_THRESHOLD} consecutive cancels.
+                  {" "}{CANCEL_THRESHOLD - penaltyData.consecutiveCancels} more will result in a block.
+                </p>
+              </div>
+            )}
+
+            {/* BLOCKED + FINE */}
+            {blocked && (
+              <div className="mt-3 bg-red-50 border border-red-200 rounded-xl p-4">
+                <div className="flex items-start gap-2">
+                  <span className="text-red-600 text-lg">🚫</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-red-700">Account Temporarily Locked</p>
+                    <p className="text-xs text-red-500 mt-1">
+                      Blocked due to excessive missed/cancelled bookings. Disabled until{" "}
+                      {lockEnd ? lockEnd.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : "lock expires"}.
+                    </p>
+                    {(penaltyData.fineDue || 0) > 0 && (
+                      <div className="mt-3 flex items-center gap-3">
+                        <span className="text-sm font-bold text-red-700">Fine: ₹{penaltyData.fineDue}</span>
+                        <button
+                          onClick={handlePayFine}
+                          disabled={payingFine}
+                          className="bg-red-600 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-red-700 transition disabled:opacity-50"
+                        >
+                          {payingFine ? "Processing..." : `Pay ₹${penaltyData.fineDue}`}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {loading || !timeLoaded ? (
         <div className="text-center py-20 animate-pulse">Loading...</div>
       ) : bookings.length === 0 ? (
         <div className="text-center py-20 bg-gray-50 rounded-xl border border-dashed">
@@ -145,32 +248,33 @@ function StudentBooking() {
       ) : (
         <div className="space-y-6 max-w-2xl mx-auto">
           {bookings.map((ticket) => {
+            const status = getBookingStatus(ticket)
+            const badge = STATUS_BADGE[status]
+            const cutoff = getTimeUntilCutoff(ticket.date, ticket.time, serverTime)
+            const journeyStatus = getJourneyStatus(ticket.date, ticket.time, serverTime)
+            const journeyBadge = JOURNEY_BADGE[journeyStatus]
 
-            const isClaimed = ticket.claimed === true;
-
-            // ✨ FIX: Smart status check
-            // Ticket is "Active" ONLY if the departure time hasn't passed yet
-            const isExpired = isTicketExpired(ticket.date, ticket.time);
-            const isFutureOrToday = !isExpired; // If it's not expired, it's active!
-
-            const statusLabel = isFutureOrToday ? "Active" : "Past";
-            const statusColor = isFutureOrToday ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500";
+            const isBooked = status === BookingStatus.BOOKED
+            const isClaimed = status === BookingStatus.CLAIMED
+            const canTrack = isClaimed && journeyStatus === JourneyStatus.DEPARTED
 
             return (
-              <div key={ticket.id} className={`bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100 flex flex-col md:flex-row ${isExpired ? "opacity-80 grayscale-[20%]" : ""}`}>
-                {/* Left Side */}
+              <div key={ticket.id} className="bg-white rounded-2xl shadow-lg overflow-hidden border border-gray-100 flex flex-col md:flex-row">
                 <div className="p-6 flex-1 flex flex-col justify-between">
                   <div>
                     <div className="flex justify-between items-start mb-4">
                       <div>
                         <p className="text-xs font-bold text-gray-400 uppercase">DESTINATION</p>
-                        <h2 className={`text-2xl font-extrabold mt-1 ${isExpired ? "text-gray-500" : "text-vitblue"}`}>
+                        <h2 className="text-2xl font-extrabold mt-1 text-vitblue">
                           {ticket.busDetails?.route || ticket.route || "Bus Route"}
                         </h2>
                       </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase ${statusColor}`}>
-                        {statusLabel}
-                      </span>
+                      {badge && (
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase border flex items-center gap-1.5 ${badge.bg} ${badge.text} ${badge.border}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${badge.dot}`}></span>
+                          {badge.label}
+                        </span>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-4 mt-4">
@@ -182,74 +286,103 @@ function StudentBooking() {
                       </div>
                       <div>
                         <p className="text-xs text-gray-400 font-bold uppercase">Date</p>
-                        <p className="font-mono text-gray-600 mt-1">
-                          {ticket.date}
-                        </p>
+                        <p className="font-mono text-gray-600 mt-1">{ticket.date}</p>
                       </div>
                     </div>
+
+                    {isBooked && cutoff && (
+                      <div className="mt-4 bg-blue-50 rounded-lg px-3 py-2 flex items-center gap-2">
+                        <span className="text-xs font-bold text-blue-500 uppercase">Booking closes in</span>
+                        <span className="font-mono font-bold text-blue-700 text-sm">
+                          {formatCountdown(cutoff)}
+                        </span>
+                      </div>
+                    )}
                   </div>
 
-                  {/* 🔴 ACTION BUTTONS (Only visible if the ticket is NOT expired) */}
-                  {isFutureOrToday && (
+                  {/* BOOKED actions */}
+                  {isBooked && (
                     <div className="mt-6 pt-4 border-t border-gray-100 flex justify-between items-center">
-
-                      {/* Claim Seat Button */}
-                      {!isClaimed && (
-                        <button
-                          onClick={() =>
-                            navigate("/student/seat-claim", {
-                              state: {
-                                bookingId: ticket.id,
-                                busId: ticket.shuttleId,
-                                seatNumber: ticket.seatNumber,
-                                route: ticket.route,
-                                gpsId: "bus1",
-                                time: ticket.time,
-                                date: ticket.date // Passing this along just in case
-                              }
-                            })
-                          }
-                          className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-green-600 transition"
-                        >
-                          Claim Seat
-                        </button>
-                      )}
-
-                      {isClaimed && (
-                        <span className="text-sm font-bold text-green-600">
-                          ✅ Seat Claimed
-                        </span>
-                      )}
-
-                      {/* Cancel Button */}
                       <button
-                        onClick={() => {
-                          setSelectedTicket(ticket)
-                          setShowCancelModal(true)
-                        }}
+                        onClick={() =>
+                          navigate("/student/seat-claim", {
+                            state: {
+                              bookingId: ticket.id,
+                              busId: ticket.shuttleId,
+                              seatNumber: ticket.seatNumber,
+                              route: ticket.route,
+                              gpsId: ticket.gpsId || "bus1",
+                              time: ticket.time,
+                              date: ticket.date
+                            }
+                          })
+                        }
+                        className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-green-600 transition"
+                      >
+                        Claim Seat
+                      </button>
+                      <button
+                        onClick={() => { setSelectedTicket(ticket); setShowCancelModal(true) }}
                         disabled={cancelLoading}
                         className="text-red-500 text-sm font-bold hover:text-red-700 hover:underline disabled:opacity-50"
                       >
                         Cancel Booking
                       </button>
-
                     </div>
                   )}
 
-                  {/* Message for Past Tickets */}
-                  {isExpired && (
-                    <div className="mt-6 pt-4 border-t border-gray-100">
-                      <p className="text-sm font-semibold text-gray-400 italic">
-                        {isClaimed ? "✅ Journey Completed" : "❌ Ticket Expired"}
-                      </p>
+                  {/* CLAIMED — Journey Status + Actions */}
+                  {isClaimed && (
+                    <div className="mt-6 pt-4 border-t border-gray-100 space-y-3">
+                      {journeyBadge && (
+                        <div className={`rounded-lg px-3 py-2 flex items-center gap-2 border ${journeyBadge.bg} ${journeyBadge.border}`}>
+                          <span className="text-base">{journeyBadge.icon}</span>
+                          <div>
+                            <p className={`text-sm font-semibold ${journeyBadge.text}`}>{journeyBadge.label}</p>
+                            <p className={`text-xs ${journeyBadge.text} opacity-75`}>{journeyBadge.message}</p>
+                          </div>
+                        </div>
+                      )}
+                      <div className="flex justify-between items-center">
+                        {canTrack ? (
+                          <button
+                            onClick={() =>
+                              navigate("/student/live-tracking", {
+                                state: {
+                                  bookingId: ticket.id,
+                                  gpsId: ticket.gpsId || "bus1",
+                                  route: ticket.route,
+                                  time: ticket.time,
+                                  date: ticket.date,
+                                  seatNumber: ticket.seatNumber,
+                                }
+                              })
+                            }
+                            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-blue-700 transition flex items-center gap-1.5"
+                          >
+                            📍 Live Tracking
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">
+                            Tracking available after departure
+                          </span>
+                        )}
+                        <button
+                          onClick={() => { setSelectedTicket(ticket); setShowCancelModal(true) }}
+                          disabled={cancelLoading}
+                          className="text-red-500 text-sm font-bold hover:text-red-700 hover:underline disabled:opacity-50"
+                        >
+                          Cancel Booking
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
 
-                {/* Right Side */}
-                <div className={`p-6 text-white flex flex-col items-center justify-center min-w-[120px] ${isFutureOrToday ? "bg-vitblue" : "bg-gray-400"}`}>
-                  <div className="absolute -top-3 -left-3 w-6 h-6 bg-gray-100 rounded-full"></div>
-                  <div className="absolute -bottom-3 -left-3 w-6 h-6 bg-gray-100 rounded-full"></div>
+                {/* Right Side — Seat Number */}
+                <div className={`p-6 text-white flex flex-col items-center justify-center min-w-[120px] ${
+                  isBooked ? "bg-vitblue" : isClaimed ? "bg-purple-600" : "bg-gray-400"
+                }`}>
                   <p className="text-xs font-bold opacity-80 uppercase tracking-widest mb-1">SEAT</p>
                   <span className="text-5xl font-extrabold tracking-tighter">{ticket.seatNumber || "?"}</span>
                 </div>
@@ -259,7 +392,6 @@ function StudentBooking() {
         </div>
       )}
 
-      {/* Cancel Confirmation Modal */}
       <ConfirmModal
         open={showCancelModal}
         title="Cancel Booking?"
