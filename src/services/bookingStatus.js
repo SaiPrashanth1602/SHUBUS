@@ -296,7 +296,6 @@ export function isSeatLockExpired(seatDoc, serverTime) {
   const lockEnd = seatDoc.lockedUntil.toDate
     ? seatDoc.lockedUntil.toDate()
     : new Date(seatDoc.lockedUntil)
-
   return now > lockEnd
 }
 
