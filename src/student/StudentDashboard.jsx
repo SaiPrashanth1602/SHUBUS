@@ -1,100 +1,432 @@
-import { useState } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
+import { collection, query, where, onSnapshot, doc, getDoc } from "firebase/firestore"
+import { onAuthStateChanged } from "firebase/auth" 
+import { db, auth } from "../config/firebase" 
 import PageWrapper from "../components/layout/PageWrapper"
+import { CalendarClock } from "lucide-react" 
+import { useServerTime } from "../services/useServerTime"
+import {
+  getBookingWindowStatus,
+  getTimeUntilCutoff,
+  formatCountdown,
+  getDemandLevel,
+  WindowStatus,
+  WINDOW_BADGE,
+  DemandLevel,
+} from "../services/bookingStatus"
+import {
+  subscribeStudentPenalty,
+  detectAndProcessMisses,
+  isStudentBlocked,
+  getLockEndDate,
+  payFine,
+} from "../services/penaltyService"
 
-const ROUTES = [
-  "VELACHERY",
-  "TAMBARAM",
-  "ALANDUR - METRO",
-  "SHOLINGANALLUR"
-]
+// Smart date helper — after 3 PM, flip to tomorrow
+const getActiveDate = () => {
+  const now = new Date()
+  if (now.getHours() >= 15) {
+    const tomorrow = new Date(now)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    return tomorrow.toISOString().split("T")[0]
+  }
+  return now.toISOString().split("T")[0]
+}
 
-const TIMES = ["1:20", "1:45"]
+// Icon components
+const BusIcon = () => (
+  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7l4-4m0 0l4 4m-4-4v18" />
+  </svg>
+)
 
-const BUSES = [
-  { id: 1, route: "VELACHERY", time: "1:20", busNo: "TN 09 AB 2345" },
-  { id: 2, route: "VELACHERY", time: "1:45", busNo: "TN 10 CD 7812" },
-  { id: 3, route: "TAMBARAM", time: "1:20", busNo: "TN 22 EF 4567" },
-  { id: 4, route: "ALANDUR - METRO", time: "1:45", busNo: "TN 07 GH 9981" },
-  { id: 5, route: "SHOLINGANALLUR", time: "1:20", busNo: "TN 14 JK 1123" },
-  { id: 6, route: "SHOLINGANALLUR", time: "1:45", busNo: "TN 18 LM 6742" }
-]
+const ChevronDownIcon = () => (
+  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+  </svg>
+)
 
 function StudentDashboard() {
+  const [shuttles, setShuttles] = useState([])
+  const [busMap, setBusMap] = useState({})
+  const [loading, setLoading] = useState(true)
+  const { serverTime, isLoaded: timeLoaded } = useServerTime()
+  
+  // User Profile State
+  const [userData, setUserData] = useState(null)
+  const [greeting, setGreeting] = useState("")
+
+  // Penalty State
+  const [penaltyData, setPenaltyData] = useState(null)
+  const [payingFine, setPayingFine] = useState(false)
+
+  // Filters
   const [selectedRoute, setSelectedRoute] = useState("")
   const [selectedTime, setSelectedTime] = useState("")
-  const navigate = useNavigate()
 
-  const filteredBuses = BUSES.filter(bus => {
-    return (
-      (selectedRoute ? bus.route === selectedRoute : true) &&
-      (selectedTime ? bus.time === selectedTime : true)
-    )
+  const navigate = useNavigate()
+  
+  // Smart dates instead of hardcoded 'today'
+  const activeDate = getActiveDate()
+  const isSchedulingForTomorrow = new Date().getHours() >= 15
+
+  // Top greeting always shows the actual CURRENT date normally
+  const currentDateDisplay = new Date().toLocaleDateString('en-IN', { 
+    weekday: 'long', 
+    day: 'numeric', 
+    month: 'long' 
   })
+
+  useEffect(() => {
+    // --- Authentication & User Data Fetching ---
+    const hour = new Date().getHours()
+    if (hour < 12) setGreeting("Good Morning")
+    else if (hour < 18) setGreeting("Good Afternoon")
+    else setGreeting("Good Evening")
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        const userDocRef = doc(db, "users", user.uid)
+        const userDocSnap = await getDoc(userDocRef)
+        if (userDocSnap.exists()) {
+          setUserData(userDocSnap.data())
+        }
+      } else {
+        setUserData(null)
+      }
+    })
+
+    // --- Shuttle and Bus Fetching ---
+    const shuttlesRef = collection(db, "shuttles")
+    const shuttleQuery = query(
+      shuttlesRef,
+      where("date", "==", activeDate), 
+      where("active", "==", true)
+    )
+
+    const unsubscribeShuttles = onSnapshot(shuttleQuery, (snapshot) => {
+      const shuttleList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      }))
+      setShuttles(shuttleList)
+    })
+
+    const busesRef = collection(db, "buses")
+    const busQuery = query(busesRef, where("active", "==", true))
+
+    const unsubscribeBuses = onSnapshot(busQuery, (snapshot) => {
+      const map = {}
+      snapshot.forEach(doc => {
+        map[doc.id] = doc.data()
+      })
+      setBusMap(map)
+      setLoading(false)
+    })
+
+    // --- Penalty subscription ---
+    let unsubscribePenalty = () => {}
+    const unsubscribeAuth2 = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        detectAndProcessMisses(user.uid).catch(() => {})
+        unsubscribePenalty = subscribeStudentPenalty(user.uid, (data) => {
+          setPenaltyData(data)
+        })
+      } else {
+        setPenaltyData(null)
+      }
+    })
+
+    return () => {
+      unsubscribeShuttles()
+      unsubscribeBuses()
+      unsubscribeAuth()
+      unsubscribeAuth2()
+      unsubscribePenalty()
+    }
+  }, [activeDate]) 
+
+  // Smart Filtering Logic
+  const allowedShuttles = useMemo(() => {
+    if (!userData || Object.keys(busMap).length === 0) return []
+    
+    return shuttles.filter(shuttle => {
+      const bus = busMap[shuttle.busId]
+      if (!bus) return false
+      return bus.busType === userData.busType
+    })
+  }, [shuttles, busMap, userData])
+
+  const routes = [...new Set(allowedShuttles.map(s => s.route))]
+  const times = [...new Set(allowedShuttles.map(s => s.time))].sort()
+
+  const filtered = allowedShuttles.filter(s => {
+    const routeOk = selectedRoute ? s.route === selectedRoute : true
+    const timeOk = selectedTime ? s.time === selectedTime : true
+    return routeOk && timeOk
+  })
+
+  if (loading || !userData) {
+    return (
+      <PageWrapper role="student">
+        <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+          <div className="w-12 h-12 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-gray-500 font-medium animate-pulse">Scanning for available shuttles...</p>
+        </div>
+      </PageWrapper>
+    )
+  }
 
   return (
     <PageWrapper role="student">
-      <h1 className="text-2xl font-bold text-vitblue mb-6">
-        Book a Shuttle
-      </h1>
-
-      {/* Filters */}
-      <div className="bg-white p-4 rounded-xl shadow mb-6 flex gap-4">
-        <select
-          value={selectedRoute}
-          onChange={e => setSelectedRoute(e.target.value)}
-          className="p-2 border rounded-lg w-1/2"
-        >
-          <option value="">Select Route</option>
-          {ROUTES.map(route => (
-            <option key={route} value={route}>
-              {route}
-            </option>
-          ))}
-        </select>
-
-        <select
-          value={selectedTime}
-          onChange={e => setSelectedTime(e.target.value)}
-          className="p-2 border rounded-lg w-1/2"
-        >
-          <option value="">Leaving Time</option>
-          {TIMES.map(time => (
-            <option key={time} value={time}>
-              {time}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* Bus List */}
-      <div className="grid gap-4">
-        {filteredBuses.length === 0 && (
-          <p className="text-gray-500 text-center">
-            No buses available for selected preferences
+      <div className="max-w-5xl mx-auto">
+        
+        {/* TOP GREETING BANNER */}
+        <div className="mb-6 px-1">
+          <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
+            {userData ? `${greeting}, ${userData.name.split(' ')[0]} 👋` : "Welcome! 👋"}
+          </h1>
+          <p className="text-gray-500 mt-1 font-medium text-sm">
+            {currentDateDisplay}
           </p>
-        )}
+        </div>
 
-        {filteredBuses.map(bus => (
-          <div
-            key={bus.id}
-            className="bg-white p-4 rounded-xl shadow flex justify-between items-center"
-          >
-            <div>
-              <p className="font-semibold text-lg">{bus.route}</p>
-              <p className="text-sm text-gray-600">
-                Bus No: {bus.busNo} • Time: {bus.time}
+        {/* PENALTY WARNING BANNER */}
+        {penaltyData && isStudentBlocked(penaltyData, serverTime) && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex-1">
+              <p className="text-sm font-bold text-red-700 flex items-center gap-2">
+                🚫 Booking Disabled
+              </p>
+              <p className="text-xs text-red-500 mt-1">
+                You are temporarily blocked due to excessive missed/cancelled bookings.
+                {(penaltyData.fineDue || 0) > 0 && ` Fine due: ₹${penaltyData.fineDue}.`}
+                {" "}Blocked until {getLockEndDate(penaltyData)?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) || "lock expires"}.
               </p>
             </div>
-
-            <button
-              onClick={() => navigate(`/student/seat-layout/${bus.id}`)}
-              className="bg-vitblue text-white px-4 py-2 rounded-lg font-semibold hover:opacity-90"
-            >
-              Select Seats
-            </button>
+            {(penaltyData.fineDue || 0) > 0 && (
+              <button
+                onClick={async () => {
+                  setPayingFine(true)
+                  try { await payFine(auth.currentUser?.uid) } catch (e) { alert(e.message) }
+                  finally { setPayingFine(false) }
+                }}
+                disabled={payingFine}
+                className="bg-red-600 text-white px-5 py-2 rounded-xl text-xs font-bold hover:bg-red-700 transition whitespace-nowrap disabled:opacity-50"
+              >
+                {payingFine ? "Processing..." : `Pay ₹${penaltyData.fineDue}`}
+              </button>
+            )}
           </div>
-        ))}
+        )}
+
+        {/* FILTERS GRID */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
+          <div className="relative w-full">
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 ml-1">Route</label>
+            <div className="relative w-full">
+              <select
+                value={selectedRoute}
+                onChange={e => setSelectedRoute(e.target.value)}
+                className="appearance-none w-full bg-gray-50 border-none ring-1 ring-gray-200 rounded-xl py-3 pl-3 pr-8 focus:ring-2 focus:ring-blue-600 outline-none text-gray-800 font-bold text-sm truncate"
+              >
+                <option value="">All Destinations</option>
+                {routes.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2">
+                <ChevronDownIcon />
+              </div>
+            </div>
+          </div>
+
+          <div className="relative w-full">
+            <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 ml-1">Departure Time</label>
+            <div className="relative w-full">
+              <select
+                value={selectedTime}
+                onChange={e => setSelectedTime(e.target.value)}
+                className="appearance-none w-full bg-gray-50 border-none ring-1 ring-gray-200 rounded-xl py-3 pl-3 pr-8 focus:ring-2 focus:ring-blue-600 outline-none text-gray-800 font-bold text-sm truncate"
+              >
+                <option value="">Any Time</option>
+                {times.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2">
+                <ChevronDownIcon />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* AVAILABLE SHUTTLES TITLE */}
+        <div className="flex items-end justify-between mb-4 px-1 border-b border-gray-200 pb-2 flex-wrap gap-2">
+          <h2 className="text-xl font-extrabold text-gray-800 flex items-center gap-2 flex-wrap">
+            Available Shuttles
+            <span className="bg-blue-100 text-blue-700 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-black">
+              {userData.busType} Only
+            </span>
+            {isSchedulingForTomorrow && (
+              <span className="bg-amber-100 text-amber-700 text-[10px] px-2 py-0.5 rounded uppercase tracking-wider font-black flex items-center gap-1 shadow-sm">
+                <CalendarClock size={12} />
+                Booking for Tomorrow
+              </span>
+            )}
+          </h2>
+          <div className="text-right">
+            <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">
+              {filtered.length} {filtered.length === 1 ? 'Bus' : 'Buses'} Found
+            </p>
+            {(selectedRoute || selectedTime) && (
+              <button
+                onClick={() => { setSelectedRoute(""); setSelectedTime("") }}
+                className="text-xs text-blue-600 font-bold hover:underline"
+              >
+                Reset Filters
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* SHUTTLE CARDS LIST */}
+        <div className="flex flex-col gap-4 pb-10">
+          {filtered.length === 0 ? (
+            <div className="bg-gray-50 rounded-3xl py-12 px-4 text-center border-2 border-dashed border-gray-200">
+              <div className="bg-gray-100 w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span className="text-xl">🚌</span>
+              </div>
+              <h3 className="text-base font-bold text-gray-800">No {userData.busType} buses found</h3>
+              <p className="text-gray-500 text-sm mt-1">
+                {isSchedulingForTomorrow 
+                  ? "Buses for tomorrow haven't been assigned yet. Check back later!" 
+                  : "Try changing your filters or checking back later."}
+              </p>
+            </div>
+          ) : (
+            filtered.map(shuttle => {
+              const total = Number(shuttle.totalSeats) || 50;
+              const booked = Number(shuttle.bookedSeats) || 0;
+              const seatsLeft = total - booked;
+              const bus = busMap[shuttle.busId] || {
+                busNo: "Unknown",
+                numberPlate: "---",
+                driver: { name: "N/A" },
+                busType: "Unknown"
+              }
+
+              // ── BOOKING WINDOW STATUS (always visible) ──
+              const windowStatus = timeLoaded
+                ? getBookingWindowStatus(shuttle.date || activeDate, shuttle.time, serverTime)
+                : WindowStatus.OPEN
+              const windowBadge = WINDOW_BADGE[windowStatus]
+              const cutoff = timeLoaded
+                ? getTimeUntilCutoff(shuttle.date || activeDate, shuttle.time, serverTime)
+                : null
+              const isClosed = windowStatus === WindowStatus.CLOSED
+              const demandLevel = getDemandLevel(booked, total)
+              
+              return (
+                <div
+                  key={shuttle.id}
+                  className={`group bg-white p-5 rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all flex flex-col gap-4 relative overflow-hidden ${isClosed ? "opacity-70" : ""}`}
+                >
+                  <div className={`absolute top-0 right-0 px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded-bl-xl ${
+                    bus.busType === "AC" ? "bg-blue-100 text-blue-700" : "bg-orange-100 text-orange-700"
+                  }`}>
+                    {bus.busType}
+                  </div>
+
+                  <div className="flex items-start gap-4">
+                    <div className="hidden sm:flex bg-blue-50 text-blue-600 w-12 h-12 rounded-xl items-center justify-center">
+                      <BusIcon />
+                    </div>
+                    <div className="flex-1 mt-1 sm:mt-0">
+                      <h3 className="font-extrabold text-lg text-gray-900 leading-tight">
+                        {shuttle.route}
+                      </h3>
+
+                      <div className="flex flex-wrap items-center gap-2 mt-1.5">
+                        <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border border-gray-200">
+                          {bus.busNo}
+                        </span>
+                        <span className="text-gray-300 text-xs">|</span>
+                        <span className="text-gray-500 font-mono text-xs">{bus.numberPlate}</span>
+                      </div>
+
+                      <div className="flex items-center gap-4 mt-3">
+                        <div className="flex items-center text-gray-600 text-sm font-medium">
+                          <span className="mr-1.5 text-gray-400">🕒</span>
+                          {shuttle.time}
+                        </div>
+                        <div className="flex items-center text-gray-600 text-sm font-medium">
+                          <span className="mr-1.5 text-gray-400">👤</span>
+                          {bus.driver?.name || "Assigning..."}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3 mt-2">
+                    {/* ── ALWAYS-VISIBLE STATUS ROW ── */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Seats Badge */}
+                      <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                        seatsLeft > 5
+                          ? "bg-green-100 text-green-700"
+                          : seatsLeft > 0
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-red-100 text-red-600"
+                      }`}>
+                        {seatsLeft > 0 ? `${seatsLeft} seats left` : "Full"}
+                      </span>
+
+                      {/* Window Status Badge */}
+                      {windowBadge && (
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase border ${windowBadge.bg} ${windowBadge.text} ${windowBadge.border}`}>
+                          {windowBadge.label}
+                        </span>
+                      )}
+
+                      {/* Demand Badge */}
+                      {demandLevel === DemandLevel.HIGH && (
+                        <span className="px-2 py-1 rounded-full text-[10px] font-bold uppercase bg-orange-100 text-orange-700 border border-orange-200">
+                          🔥 High Demand
+                        </span>
+                      )}
+
+                      {/* Countdown */}
+                      {cutoff && !isClosed && (
+                        <span className={`ml-auto text-xs font-mono font-bold ${
+                          windowStatus === WindowStatus.CLOSING ? "text-yellow-600" : "text-gray-400"
+                        }`}>
+                          Closes in {formatCountdown(cutoff)}
+                        </span>
+                      )}
+                    </div>
+
+                    <button
+                      disabled={seatsLeft <= 0 || isClosed}
+                      onClick={() =>
+                        navigate(`/student/seat-layout/${shuttle.id}`, {
+                          state: {
+                            route: shuttle.route,
+                            time: shuttle.time
+                          }
+                        })
+                      }
+                      className={`w-full py-3 rounded-xl font-bold text-sm shadow-md transition-all ${
+                        seatsLeft > 0 && !isClosed
+                          ? "bg-blue-600 text-white active:scale-[0.98]"
+                          : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                      }`}
+                    >
+                      {isClosed ? "Booking Closed" : seatsLeft > 0 ? "Select Seat" : "Full"}
+                    </button>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
       </div>
     </PageWrapper>
   )
